@@ -32,12 +32,15 @@ void obter_parametros_aplicacao(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     if (strstr(argv[i], PARAM_NUM_PROCESSOS) != NULL) {
       num_processos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      continue;
     }
     if (strstr(argv[i], PARAM_NUM_BLOCOS) != NULL) {
       num_blocos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      continue;
     }
     if (strstr(argv[i], PARAM_TAM_BLOCOS) != NULL) {
       tam_blocos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      continue;
     }
   }
   if (num_processos <= 0) {
@@ -65,9 +68,10 @@ void criar_processos() {
 }
 
 bloco_t* obter_blocos_processo() {
-  bloco_t* blocos = malloc((sizeof(bloco_t) + sizeof(char) * tam_blocos) * num_blocos);
-  for (int i = 0; i < num_blocos; i++) {
-    blocos[i].id = i + (id_processo * num_blocos);
+  int num_blocos_processo = num_blocos / num_processos;
+  bloco_t* blocos = malloc((sizeof(bloco_t) + sizeof(char) * tam_blocos) * num_blocos_processo);
+  for (int i = 0; i < num_blocos_processo; i++) {
+    blocos[i].id = i + (id_processo * num_blocos_processo);
     memset(blocos[i].enderecos, -1, tam_blocos);
   }
   return blocos;
@@ -87,7 +91,7 @@ int main(int argc, char** argv) {
   int mapeamento_portas[num_processos];
   mapear_portas(mapeamento_portas);
 
-  int sock_fd, novo_fd;
+  int sock_fd, cliente_fd;
   struct sockaddr_in endereco, end_cliente;
   socklen_t tam_end_cliente = sizeof(end_cliente);
   char buffer[MAX_BUFFER];
@@ -131,16 +135,16 @@ int main(int argc, char** argv) {
     }
 
     if (clientes[0].revents & POLLIN) {
-      novo_fd = accept(sock_fd, (struct sockaddr *)&end_cliente, &tam_end_cliente);
+      cliente_fd = accept(sock_fd, (struct sockaddr *)&end_cliente, &tam_end_cliente);
 
-      if (novo_fd < 0) {
+      if (cliente_fd < 0) {
         printf("[PROCESSO %d] Erro ao aceitar novo cliente\n", id_processo);
         continue;
       }
 
       for (int i = 1; i < num_processos; i++) {
         if (clientes[i].fd == -1) {
-          clientes[i].fd = novo_fd;
+          clientes[i].fd = cliente_fd;
           clientes[i].events = POLLIN;
         }
       }
