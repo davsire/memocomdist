@@ -17,11 +17,12 @@
 int num_processos = 0;
 int num_blocos = 0;
 int tam_blocos = 0;
+int num_blocos_processo = 0;
 int id_processo = 0;
 
 typedef struct Bloco {
   int id;
-  char enderecos[];
+  char* enderecos;
 } bloco_t;
 
 void obter_parametros_aplicacao(int argc, char** argv) {
@@ -67,14 +68,22 @@ void criar_processos() {
   }
 }
 
-bloco_t* obter_blocos_processo() {
-  int num_blocos_processo = num_blocos / num_processos;
-  bloco_t* blocos = malloc((sizeof(bloco_t) + sizeof(char) * tam_blocos) * num_blocos_processo);
+bloco_t* criar_blocos_processo() {
+  num_blocos_processo = num_blocos / num_processos;
+  bloco_t* blocos = malloc(sizeof(bloco_t) * num_blocos_processo);
   for (int i = 0; i < num_blocos_processo; i++) {
     blocos[i].id = i + (id_processo * num_blocos_processo);
+    blocos[i].enderecos = malloc(sizeof(char) * tam_blocos);
     memset(blocos[i].enderecos, -1, tam_blocos);
   }
   return blocos;
+}
+
+void remover_blocos_processo(bloco_t* blocos) {
+  for (int i = 0; i < num_blocos_processo; i++) {
+    free(blocos[i].enderecos);
+  }
+  free(blocos);
 }
 
 void mapear_portas(int mapeamento_portas[]) {
@@ -87,7 +96,7 @@ int main(int argc, char** argv) {
   obter_parametros_aplicacao(argc, argv);
   criar_processos();
 
-  bloco_t* blocos = obter_blocos_processo();
+  bloco_t* blocos = criar_blocos_processo();
   int mapeamento_portas[num_processos];
   mapear_portas(mapeamento_portas);
 
@@ -146,6 +155,7 @@ int main(int argc, char** argv) {
         if (clientes[i].fd == -1) {
           clientes[i].fd = cliente_fd;
           clientes[i].events = POLLIN;
+          break;
         }
       }
     }
@@ -167,6 +177,7 @@ int main(int argc, char** argv) {
     }
   }
 
+  remover_blocos_processo(blocos);
   close(sock_fd);
   exit(EXIT_SUCCESS);
 }
