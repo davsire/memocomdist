@@ -12,10 +12,14 @@
 #define PARAM_NUM_BLOCOS "-b="
 #define PARAM_TAM_BLOCOS "-t="
 #define IGUAL "="
+#define ESPACO " "
 #define PORTA_INICIAL 50000
 #define LIMITE_CONEXOES 10
 #define MAX_BUFFER 4096
 #define VALOR_VAZIO -1
+
+#define FETCH "FETCH"
+#define STORE "STORE"
 
 typedef struct Bloco {
   int id;
@@ -80,7 +84,7 @@ void criar_blocos_processo() {
   for (int i = 0; i < num_blocos_processo; i++) {
     blocos[i].id = i + (id_processo * num_blocos_processo);
     blocos[i].enderecos = malloc(sizeof(char) * tam_blocos);
-    memset(blocos[i].enderecos, VALOR_VAZIO, tam_blocos);
+    memset(blocos[i].enderecos, 'a', tam_blocos);
   }
 }
 
@@ -99,6 +103,33 @@ void mapear_portas() {
   }
 }
 
+void fetch_dados(char* parametros, char* buffer) {
+  int posicao = atoi(strtok(parametros, ESPACO));
+  int n_bytes = atoi(strtok(NULL, ESPACO));
+
+  for (int i = 0; i < n_bytes; i++) {
+    int bloco = (posicao + i) / tam_blocos;
+    int pos_bloco = (posicao + i) % tam_blocos;
+    buffer[i] = blocos[bloco].enderecos[pos_bloco];
+  }
+
+  buffer[n_bytes] = '\0';
+}
+
+void store_dados(char* parametros) {
+  int posicao = atoi(strtok(parametros, ESPACO));
+  int n_bytes = atoi(strtok(NULL, ESPACO));
+  char* conteudo = strtok(NULL, ESPACO);
+  int tamanho_conteudo = strlen(conteudo);
+  n_bytes = n_bytes <= tamanho_conteudo ? n_bytes : tamanho_conteudo;
+
+  for (int i = 0; i < n_bytes; i++) {
+    int bloco = (posicao + i) / tam_blocos;
+    int pos_bloco = (posicao + i) % tam_blocos;
+    blocos[bloco].enderecos[pos_bloco] = conteudo[i];
+  }
+}
+
 void finalizar_programa() {
   fim_programa = 1;
 }
@@ -114,7 +145,7 @@ int main(int argc, char** argv) {
   struct sockaddr_in endereco, end_cliente;
   socklen_t tam_end_cliente = sizeof(end_cliente);
   char buffer[MAX_BUFFER];
-  int nbytes;
+  int n_bytes;
   
   if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
     printf("[PROCESSO %d] Erro ao criar socket\n", id_processo);
@@ -175,17 +206,29 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < num_processos; i++) {
       if (clientes[i].fd != VALOR_VAZIO && (clientes[i].revents & POLLIN)) {
-        nbytes = read(clientes[i].fd, &buffer, MAX_BUFFER);
+        n_bytes = read(clientes[i].fd, &buffer, MAX_BUFFER);
 
-        if (nbytes == 0) {
+        if (n_bytes == 0) {
           close(clientes[i].fd);
           clientes[i].fd = VALOR_VAZIO;
           continue;
         }
 
-        // @TODO: lidar com comunicação, oq tem abaixo é só pra testes
-        buffer[nbytes - 1] = '\0';
-        printf("[PROCESSO %d] msg: %s\n", id_processo, buffer);
+        buffer[n_bytes] = '\0';
+
+        if (strstr(buffer, FETCH)) {
+          fetch_dados(buffer + strspn(buffer, FETCH), buffer);
+          printf("%s\n", buffer);
+          write(clientes[i].fd, buffer, strlen(buffer));
+          continue;
+        }
+
+        if (strstr(buffer, STORE)) {
+          store_dados(buffer + strspn(buffer, STORE));
+          continue;
+        }
+
+        printf("[PROCESSO %d] Mensagem: %s\n", id_processo, buffer);
       }
     }
   }
