@@ -5,6 +5,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <signal.h>
+#include <errno.h>
 
 #define PARAM_NUM_PROCESSOS "-p="
 #define PARAM_NUM_BLOCOS "-b="
@@ -13,17 +15,21 @@
 #define PORTA_INICIAL 50000
 #define LIMITE_CONEXOES 10
 #define MAX_BUFFER 4096
-
-int num_processos = 0;
-int num_blocos = 0;
-int tam_blocos = 0;
-int num_blocos_processo = 0;
-int id_processo = 0;
+#define VALOR_VAZIO -1
 
 typedef struct Bloco {
   int id;
   char* enderecos;
 } bloco_t;
+
+int fim_programa = 0;
+int num_processos = 0;
+int num_blocos = 0;
+int tam_blocos = 0;
+int num_blocos_processo = 0;
+int id_processo = 0;
+bloco_t* blocos;
+int* mapeamento_portas;
 
 void obter_parametros_aplicacao(int argc, char** argv) {
   if (argc < 4) {
@@ -68,37 +74,41 @@ void criar_processos() {
   }
 }
 
-bloco_t* criar_blocos_processo() {
+void criar_blocos_processo() {
   num_blocos_processo = num_blocos / num_processos;
-  bloco_t* blocos = malloc(sizeof(bloco_t) * num_blocos_processo);
+  blocos = malloc(sizeof(bloco_t) * num_blocos_processo);
   for (int i = 0; i < num_blocos_processo; i++) {
     blocos[i].id = i + (id_processo * num_blocos_processo);
     blocos[i].enderecos = malloc(sizeof(char) * tam_blocos);
-    memset(blocos[i].enderecos, -1, tam_blocos);
+    memset(blocos[i].enderecos, VALOR_VAZIO, tam_blocos);
   }
-  return blocos;
 }
 
-void remover_blocos_processo(bloco_t* blocos) {
+void limpar_processo() {
   for (int i = 0; i < num_blocos_processo; i++) {
     free(blocos[i].enderecos);
   }
   free(blocos);
+  free(mapeamento_portas);
 }
 
-void mapear_portas(int mapeamento_portas[]) {
+void mapear_portas() {
+  mapeamento_portas = malloc(sizeof(int) * num_processos);
   for (int i = 0; i < num_processos; i++) {
     mapeamento_portas[i] = PORTA_INICIAL + i;
   }
 }
 
+void finalizar_programa() {
+  fim_programa = 1;
+}
+
 int main(int argc, char** argv) {
+  signal(SIGINT, finalizar_programa);
   obter_parametros_aplicacao(argc, argv);
   criar_processos();
-
-  bloco_t* blocos = criar_blocos_processo();
-  int mapeamento_portas[num_processos];
-  mapear_portas(mapeamento_portas);
+  criar_blocos_processo();
+  mapear_portas();
 
   int sock_fd, cliente_fd;
   struct sockaddr_in endereco, end_cliente;
@@ -129,15 +139,18 @@ int main(int argc, char** argv) {
 
   struct pollfd clientes[num_processos];
   for (int i = 0; i < num_processos; i++) {
-    clientes[i].fd = -1;
+    clientes[i].fd = VALOR_VAZIO;
   }
 
   clientes[0].fd = sock_fd;
   clientes[0].events = POLLIN;
   
   printf("[PROCESSO %d] Processo iniciado!\n", id_processo);
-  while (1) {
+  while (!fim_programa) {
     if (poll(clientes, num_processos, -1) == -1) {
+      if (errno == EINTR) {
+        break;
+      }
       printf("[PROCESSO %d] Erro ao fazer polling\n", id_processo);
       close(sock_fd);
       exit(EXIT_FAILURE);  
@@ -152,7 +165,7 @@ int main(int argc, char** argv) {
       }
 
       for (int i = 1; i < num_processos; i++) {
-        if (clientes[i].fd == -1) {
+        if (clientes[i].fd == VALOR_VAZIO) {
           clientes[i].fd = cliente_fd;
           clientes[i].events = POLLIN;
           break;
@@ -161,12 +174,12 @@ int main(int argc, char** argv) {
     }
 
     for (int i = 1; i < num_processos; i++) {
-      if (clientes[i].fd != -1 && (clientes[i].revents & POLLIN)) {
+      if (clientes[i].fd != VALOR_VAZIO && (clientes[i].revents & POLLIN)) {
         nbytes = read(clientes[i].fd, &buffer, MAX_BUFFER);
 
         if (nbytes == 0) {
           close(clientes[i].fd);
-          clientes[i].fd = -1;
+          clientes[i].fd = VALOR_VAZIO;
           continue;
         }
 
@@ -177,7 +190,9 @@ int main(int argc, char** argv) {
     }
   }
 
-  remover_blocos_processo(blocos);
-  close(sock_fd);
+  limpar_processo();
+  for (int i = 0; i < num_processos; i++) {
+    close(clientes[i].fd);
+  }
   exit(EXIT_SUCCESS);
 }
