@@ -17,7 +17,6 @@
 #define LIMITE_CONEXOES 10
 #define MAX_BUFFER 4096
 #define VALOR_VAZIO -1
-
 #define FETCH "FETCH"
 #define STORE "STORE"
 
@@ -84,7 +83,7 @@ void criar_blocos_processo() {
   for (int i = 0; i < num_blocos_processo; i++) {
     blocos[i].id = i + (id_processo * num_blocos_processo);
     blocos[i].enderecos = malloc(sizeof(char) * tam_blocos);
-    memset(blocos[i].enderecos, 'a', tam_blocos);
+    memset(blocos[i].enderecos, VALOR_VAZIO, tam_blocos);
   }
 }
 
