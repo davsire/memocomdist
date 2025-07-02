@@ -84,19 +84,19 @@ void criar_blocos_processo() {
   }
 }
 
+void mapear_portas() {
+  mapeamento_portas = malloc(sizeof(int) * num_processos);
+  for (int i = 0; i < num_processos; i++) {
+    mapeamento_portas[i] = PORTA_INICIAL + i;
+  }
+}
+
 void limpar_processo() {
   for (int i = 0; i < num_blocos_processo; i++) {
     free(blocos[i].enderecos);
   }
   free(blocos);
   free(mapeamento_portas);
-}
-
-void mapear_portas() {
-  mapeamento_portas = malloc(sizeof(int) * num_processos);
-  for (int i = 0; i < num_processos; i++) {
-    mapeamento_portas[i] = PORTA_INICIAL + i;
-  }
 }
 
 void finalizar_programa() {
