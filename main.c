@@ -69,11 +69,10 @@ void obter_parametros_aplicacao(int argc, char** argv) {
 
 void criar_processos() {
   for (int i = 1; i < num_processos; i++) {
-    if (!fork()) {
-      id_processo = i;
-      continue;
+    if (fork()) {
+      break;
     }
-    break;
+    id_processo = i;
   }
 }
 
