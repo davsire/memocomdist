@@ -218,7 +218,6 @@ int main(int argc, char** argv) {
 
         if (strstr(buffer, FETCH)) {
           fetch_dados(buffer + strspn(buffer, FETCH), buffer);
-          printf("%s\n", buffer);
           write(clientes[i].fd, buffer, strlen(buffer));
           continue;
         }
