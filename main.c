@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <poll.h>
 #include <signal.h>
 #include <errno.h>
@@ -13,11 +14,13 @@
 #define PARAM_TAM_BLOCOS "-t="
 #define IGUAL "="
 #define ESPACO " "
+#define LOCALHOST "127.0.0.1"
 #define PORTA_INICIAL 50000
 #define LIMITE_CONEXOES 10
 #define MAX_BUFFER 4096
 #define VALOR_VAZIO -1
 #define FETCH "FETCH"
+#define FETCH_BLOCO "FETCH_BLOCO"
 #define STORE "STORE"
 
 typedef struct Bloco {
@@ -101,17 +104,60 @@ void limpar_processo() {
   free(mapeamento_portas);
 }
 
-void fetch_dados(char* parametros, char* buffer) {
-  int posicao = atoi(strtok(parametros, ESPACO));
-  int n_bytes = atoi(strtok(NULL, ESPACO));
+void obter_dados_bloco(int id_bloco, char* destino) {
+  int processo_bloco = id_bloco / num_blocos_processo;
 
-  for (int i = 0; i < n_bytes; i++) {
-    int bloco = (posicao + i) / tam_blocos;
-    int pos_bloco = (posicao + i) % tam_blocos;
-    buffer[i] = blocos[bloco].enderecos[pos_bloco];
+  if (processo_bloco == id_processo) {
+    memcpy(destino, blocos[id_bloco % num_blocos_processo].enderecos, tam_blocos);
+    return;
   }
 
+  char buffer[MAX_BUFFER];
+  int sock_fd;
+  struct sockaddr_in server_end;
+
+  server_end.sin_family = AF_INET;
+  server_end.sin_addr.s_addr = inet_addr(LOCALHOST);
+  server_end.sin_port = htons(mapeamento_portas[processo_bloco]);
+
+  sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  connect(sock_fd, (struct sockaddr*)&server_end, sizeof(server_end));
+
+  sprintf(buffer, "%s %d", FETCH_BLOCO, id_bloco);
+  write(sock_fd, &buffer, MAX_BUFFER);
+  read(sock_fd, &buffer, tam_blocos);
+  close(sock_fd);
+
+  memcpy(destino, buffer, tam_blocos);
+}
+
+void fetch_dados(char* parametros, char* buffer) {
+  int posicao_inicial = atoi(strtok(parametros, ESPACO));
+  int n_bytes = atoi(strtok(NULL, ESPACO));
+
+  bloco_t bloco_atual;
+  bloco_atual.id = VALOR_VAZIO;
+  bloco_atual.enderecos = malloc(sizeof(char) * tam_blocos);
+
+  for (int i = 0; i < n_bytes; i++) {
+    int id_bloco = (posicao_inicial + i) / tam_blocos;
+    int enderco_bloco = (posicao_inicial + i) % tam_blocos;
+
+    if (bloco_atual.id != id_bloco) {
+      bloco_atual.id = id_bloco;
+      obter_dados_bloco(id_bloco, bloco_atual.enderecos);
+    }
+
+    buffer[i] = bloco_atual.enderecos[enderco_bloco];
+  }
+
+  free(bloco_atual.enderecos);
   buffer[n_bytes] = '\0';
+}
+
+void fetch_bloco(char* parametros, char* buffer) {
+  int id_bloco = atoi(parametros);
+  memcpy(buffer, blocos[id_bloco % num_blocos_processo].enderecos, tam_blocos);
 }
 
 void store_dados(char* parametros) {
@@ -151,7 +197,7 @@ int main(int argc, char** argv) {
   }
 
   endereco.sin_family = AF_INET;
-  endereco.sin_addr.s_addr = htons(INADDR_ANY);
+  endereco.sin_addr.s_addr = inet_addr(LOCALHOST);
   endereco.sin_port = htons(PORTA_INICIAL + id_processo);
 
   if (bind(sock_fd, (struct sockaddr *)&endereco, sizeof(endereco)) == -1) {
@@ -213,6 +259,13 @@ int main(int argc, char** argv) {
         }
 
         buffer[n_bytes] = '\0';
+        printf("[PROCESSO %d] Mensagem recebida: %s\n", id_processo, buffer);
+
+        if (strstr(buffer, FETCH_BLOCO)) {
+          fetch_bloco(buffer + strspn(buffer, FETCH), buffer);
+          write(clientes[i].fd, buffer, tam_blocos);
+          continue;
+        }
 
         if (strstr(buffer, FETCH)) {
           fetch_dados(buffer + strspn(buffer, FETCH), buffer);
@@ -224,8 +277,6 @@ int main(int argc, char** argv) {
           store_dados(buffer + strspn(buffer, STORE));
           continue;
         }
-
-        printf("[PROCESSO %d] Mensagem: %s\n", id_processo, buffer);
       }
     }
   }
