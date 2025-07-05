@@ -1,5 +1,5 @@
 TARGET = memcomdist
-SRC = main.c
+SRC = src/main.c
 CC = gcc
 
 all: $(SRC)
