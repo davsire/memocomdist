@@ -32,6 +32,7 @@ int le(int posicao, char* buffer, int tamanho) {
   sprintf(mensagem, "%s %d %d", FETCH, posicao, tamanho);
   write(sock_fd, &mensagem, strlen(mensagem));
   n_bytes = read(sock_fd, &mensagem, MAX_BUFFER);
+  close(sock_fd);
   memcpy(buffer, mensagem, n_bytes);
 }
 
@@ -55,5 +56,6 @@ int escreve(int posicao, char* buffer, int tamanho) {
 
   sprintf(mensagem, "%s %d %d %s", STORE, posicao, tamanho, buffer);
   write(sock_fd, &mensagem, strlen(mensagem));
+  close(sock_fd);
   n_bytes = read(sock_fd, &mensagem, MAX_BUFFER);
 }
