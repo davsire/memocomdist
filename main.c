@@ -26,11 +26,9 @@
 
 // Lista de TO-DOs (remover na medida que concluir)
 // - Implementar validações no protocolo para evitar mensagens malformadas
-// - Corrigir detalhes de buffer com valor 'vazio' (rever esse valor vazio)
-// - Implementar cache
-// - Criar formato de resposta com erros (para quando ultrapassar limite do espaço de endereçamento, por exemplo)
+// - Implementar cache (com coerência)
+// - Criar formato de resposta de erro
 // - Criar arquivo lib para API
-// - Testar MUITO
 
 typedef struct Bloco {
   int id;
@@ -184,6 +182,11 @@ void fetch_dados(char* parametros, char* buffer) {
   int posicao_inicial = atoi(strtok(parametros, ESPACO));
   int n_bytes = atoi(strtok(NULL, ESPACO));
 
+  if ((posicao_inicial + n_bytes) > (num_blocos * tam_blocos)) {
+    printf("[PROCESSO %d] Acesso fora do limite da memória\n", id_processo);
+    return;
+  }
+
   bloco_t bloco_atual;
   bloco_atual.id = VALOR_VAZIO;
   bloco_atual.enderecos = malloc(sizeof(char) * tam_blocos);
@@ -215,6 +218,11 @@ void store_dados(char* parametros) {
   char* conteudo = strtok(NULL, "");
   int tamanho_conteudo = strlen(conteudo);
   n_bytes = n_bytes > tamanho_conteudo ? tamanho_conteudo : n_bytes;
+
+  if ((posicao_inicial + n_bytes) > (num_blocos * tam_blocos)) {
+    printf("[PROCESSO %d] Acesso fora do limite da memória\n", id_processo);
+    return;
+  }
 
   bloco_t bloco_atual;
   bloco_atual.id = VALOR_VAZIO;
