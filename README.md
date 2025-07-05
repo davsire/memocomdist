@@ -33,7 +33,7 @@ Execute o programa da seguinte forma:
 A utilização do protótipo de memória compartilhada distribuída pode seguir de duas formas:
 
 - Conexão com um dos nós (processos) do grupo usando sua porta e comunicação com o sistema através do protocolo definido.
-- Uso da API presente no arquivo `api/api.h` em um código `.c`.
+- Uso da API presente no arquivo `api/api.h` em um código `.c` (necessário compilar o arquivo `api/api.c` junto).
 
 ### Processos
 
