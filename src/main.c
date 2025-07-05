@@ -8,6 +8,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <errno.h>
+#include <regex.h>
 
 #define PARAM_NUM_PROCESSOS "-p="
 #define PARAM_NUM_BLOCOS "-b="
@@ -25,7 +26,6 @@
 #define STORE_BLOCO "STORE_BLOCO"
 
 // Lista de TO-DOs (remover na medida que concluir)
-// - Implementar validações no protocolo para evitar mensagens malformadas
 // - Implementar cache (com coerência)
 // - Criar formato de resposta de erro
 // - Criar arquivo lib para API
@@ -113,8 +113,39 @@ void limpar_processo() {
   free(mapeamento_portas);
 }
 
+int validar_erro_mensagem_protocolo(char* metodo, char* mensagem) {
+  regex_t regex;
+  char expressao[100];
+
+  if (strcmp(metodo, FETCH) == 0) {
+    sprintf(expressao, "^%s [0-9]+ [0-9]+", FETCH);
+  }
+  else if (strcmp(metodo, FETCH_BLOCO) == 0) {
+    sprintf(expressao, "^%s [0-9]+", FETCH_BLOCO);
+  }
+  else if (strcmp(metodo, STORE) == 0) {
+    sprintf(expressao, "^%s [0-9]+ [0-9]+ .+", STORE);
+  }
+  else if (strcmp(metodo, STORE_BLOCO) == 0) {
+    sprintf(expressao, "^%s [0-9]+ .{%d}", STORE_BLOCO, tam_blocos);
+  }
+
+  regcomp(&regex, expressao, REG_EXTENDED | REG_NOSUB);
+  int erro = regexec(&regex, mensagem, 0, NULL, 0) == REG_NOMATCH;
+  regfree(&regex);
+
+  if (erro) {
+    printf("[PROCESSO %d] Mensagem '%s' malformada\n", id_processo, metodo);
+  }
+  return erro;
+}
+
 int validar_posicao_fora_limite_memoria(int posicao_inicial, int n_bytes) {
-  return posicao_inicial < 0 || (posicao_inicial + n_bytes) > (num_blocos * tam_blocos);
+  int erro = posicao_inicial < 0 || (posicao_inicial + n_bytes) > (num_blocos * tam_blocos);
+  if (erro) {
+    printf("[PROCESSO %d] Acesso fora do limite da memória\n", id_processo);
+  }
+  return erro;
 }
 
 void obter_dados_bloco(int id_bloco, char* destino) {
@@ -189,7 +220,6 @@ void fetch_dados(char* parametros, char* buffer) {
   int n_bytes = atoi(strtok(NULL, ESPACO));
 
   if (validar_posicao_fora_limite_memoria(posicao_inicial, n_bytes)) {
-    printf("[PROCESSO %d] Acesso fora do limite da memória\n", id_processo);
     return;
   }
 
@@ -226,7 +256,6 @@ void store_dados(char* parametros) {
   n_bytes = n_bytes > tamanho_conteudo ? tamanho_conteudo : n_bytes;
 
   if (validar_posicao_fora_limite_memoria(posicao_inicial, n_bytes)) {
-    printf("[PROCESSO %d] Acesso fora do limite da memória\n", id_processo);
     return;
   }
 
@@ -348,6 +377,9 @@ int main(int argc, char** argv) {
         printf("[PROCESSO %d] Mensagem recebida: %s\n", id_processo, requisicao);
 
         if (strstr(requisicao, FETCH_BLOCO) != NULL) {
+          if (validar_erro_mensagem_protocolo(FETCH_BLOCO, requisicao)) {
+            continue;
+          }
           memset(resposta, VALOR_VAZIO, MAX_BUFFER);
           fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
           write(clientes[i].fd, &resposta, tam_blocos);
@@ -355,6 +387,9 @@ int main(int argc, char** argv) {
         }
 
         if (strstr(requisicao, FETCH) != NULL) {
+          if (validar_erro_mensagem_protocolo(FETCH, requisicao)) {
+            continue;
+          }
           memset(resposta, VALOR_VAZIO, MAX_BUFFER);
           fetch_dados(requisicao + strlen(FETCH), resposta);
           write(clientes[i].fd, &resposta, strlen(resposta));
@@ -362,11 +397,17 @@ int main(int argc, char** argv) {
         }
 
         if (strstr(requisicao, STORE_BLOCO) != NULL) {
+          if (validar_erro_mensagem_protocolo(STORE_BLOCO, requisicao)) {
+            continue;
+          }
           store_bloco(requisicao + strlen(STORE_BLOCO));
           continue;
         }
 
         if (strstr(requisicao, STORE) != NULL) {
+          if (validar_erro_mensagem_protocolo(STORE, requisicao)) {
+            continue;
+          }
           store_dados(requisicao + strlen(STORE));
           continue;
         }
