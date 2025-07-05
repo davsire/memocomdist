@@ -18,18 +18,17 @@
 #define PORTA_INICIAL 50000
 #define LIMITE_CONEXOES 10
 #define MAX_BUFFER 4096
-#define VALOR_VAZIO -1
+#define VALOR_VAZIO 0xFF
 #define FETCH "FETCH"
 #define FETCH_BLOCO "FETCH_BLOCO"
 #define STORE "STORE"
 #define STORE_BLOCO "STORE_BLOCO"
 
 // Lista de TO-DOs (remover na medida que concluir)
-// - Tratar armazenamento de conteudos com espaço no protocolo
-// - Tratar envio de lixo de buffer nas mensagens do protocolo
 // - Implementar validações no protocolo para evitar mensagens malformadas
-// - Implementar cache
 // - Corrigir detalhes de buffer com valor 'vazio' (rever esse valor vazio)
+// - Implementar cache
+// - Criar formato de resposta com erros (para quando ultrapassar limite do espaço de endereçamento, por exemplo)
 // - Criar arquivo lib para API
 // - Testar MUITO
 
@@ -124,18 +123,18 @@ void obter_dados_bloco(int id_bloco, char* destino) {
 
   char buffer[MAX_BUFFER];
   int sock_fd;
-  struct sockaddr_in server_end;
+  struct sockaddr_in processo_end;
 
-  server_end.sin_family = AF_INET;
-  server_end.sin_addr.s_addr = inet_addr(LOCALHOST);
-  server_end.sin_port = htons(mapeamento_portas[processo_bloco]);
+  processo_end.sin_family = AF_INET;
+  processo_end.sin_addr.s_addr = inet_addr(LOCALHOST);
+  processo_end.sin_port = htons(mapeamento_portas[processo_bloco]);
 
   if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
     printf("[PROCESSO %d] Erro ao criar socket para obter dados de bloco\n", id_processo);
     return;
   }
 
-  if (connect(sock_fd, (struct sockaddr*)&server_end, sizeof(server_end)) == -1) {
+  if (connect(sock_fd, (struct sockaddr*)&processo_end, sizeof(processo_end)) == -1) {
     printf("[PROCESSO %d] Erro ao se conectar com processo %d\n", id_processo, processo_bloco);
     close(sock_fd);
     return;
@@ -159,18 +158,18 @@ void salvar_dados_bloco(int id_bloco, char* origem) {
 
   char buffer[MAX_BUFFER];
   int sock_fd;
-  struct sockaddr_in server_end;
+  struct sockaddr_in processo_end;
 
-  server_end.sin_family = AF_INET;
-  server_end.sin_addr.s_addr = inet_addr(LOCALHOST);
-  server_end.sin_port = htons(mapeamento_portas[processo_bloco]);
+  processo_end.sin_family = AF_INET;
+  processo_end.sin_addr.s_addr = inet_addr(LOCALHOST);
+  processo_end.sin_port = htons(mapeamento_portas[processo_bloco]);
 
   if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
     printf("[PROCESSO %d] Erro ao criar socket para salvar dados de bloco\n", id_processo);
     return;
   }
 
-  if (connect(sock_fd, (struct sockaddr*)&server_end, sizeof(server_end)) == -1) {
+  if (connect(sock_fd, (struct sockaddr*)&processo_end, sizeof(processo_end)) == -1) {
     printf("[PROCESSO %d] Erro ao se conectar com processo %d\n", id_processo, processo_bloco);
     close(sock_fd);
     return;
@@ -213,7 +212,7 @@ void fetch_bloco(char* parametros, char* buffer) {
 void store_dados(char* parametros) {
   int posicao_inicial = atoi(strtok(parametros, ESPACO));
   int n_bytes = atoi(strtok(NULL, ESPACO));
-  char* conteudo = strtok(NULL, ESPACO);
+  char* conteudo = strtok(NULL, "");
   int tamanho_conteudo = strlen(conteudo);
   n_bytes = n_bytes > tamanho_conteudo ? tamanho_conteudo : n_bytes;
 
@@ -242,7 +241,7 @@ void store_dados(char* parametros) {
 
 void store_bloco(char* parametros) {
   int id_bloco = atoi(strtok(parametros, ESPACO));
-  char* conteudo = strtok(NULL, ESPACO);
+  char* conteudo = strtok(NULL, "");
   memcpy(blocos[id_bloco % num_blocos_processo].enderecos, conteudo, tam_blocos);
 }
 
@@ -260,17 +259,18 @@ int main(int argc, char** argv) {
   int sock_fd, cliente_fd;
   struct sockaddr_in endereco, end_cliente;
   socklen_t tam_end_cliente = sizeof(end_cliente);
-  char buffer[MAX_BUFFER];
+  char requisicao[MAX_BUFFER];
+  char resposta[MAX_BUFFER];
   int n_bytes;
+
+  endereco.sin_family = AF_INET;
+  endereco.sin_addr.s_addr = inet_addr(LOCALHOST);
+  endereco.sin_port = htons(PORTA_INICIAL + id_processo);
 
   if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
     printf("[PROCESSO %d] Erro ao criar socket principal\n", id_processo);
     exit(EXIT_FAILURE);
   }
-
-  endereco.sin_family = AF_INET;
-  endereco.sin_addr.s_addr = inet_addr(LOCALHOST);
-  endereco.sin_port = htons(PORTA_INICIAL + id_processo);
 
   if (bind(sock_fd, (struct sockaddr *)&endereco, sizeof(endereco)) == -1) {
     printf("[PROCESSO %d] Erro ao associar porta ao socket\n", id_processo);
@@ -322,7 +322,7 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < num_processos; i++) {
       if (clientes[i].fd != VALOR_VAZIO && (clientes[i].revents & POLLIN)) {
-        n_bytes = read(clientes[i].fd, &buffer, MAX_BUFFER);
+        n_bytes = read(clientes[i].fd, &requisicao, MAX_BUFFER);
 
         if (n_bytes == 0) {
           close(clientes[i].fd);
@@ -330,28 +330,30 @@ int main(int argc, char** argv) {
           continue;
         }
 
-        buffer[n_bytes] = '\0';
-        printf("[PROCESSO %d] Mensagem recebida: %s\n", id_processo, buffer);
+        requisicao[n_bytes] = '\0';
+        printf("[PROCESSO %d] Mensagem recebida: %s\n", id_processo, requisicao);
 
-        if (strstr(buffer, FETCH_BLOCO)) {
-          fetch_bloco(buffer + strlen(FETCH_BLOCO), buffer);
-          write(clientes[i].fd, &buffer, tam_blocos);
+        if (strstr(requisicao, FETCH_BLOCO) != NULL) {
+          memset(resposta, VALOR_VAZIO, MAX_BUFFER);
+          fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
+          write(clientes[i].fd, &resposta, tam_blocos);
           continue;
         }
 
-        if (strstr(buffer, FETCH)) {
-          fetch_dados(buffer + strlen(FETCH), buffer);
-          write(clientes[i].fd, &buffer, strlen(buffer));
+        if (strstr(requisicao, FETCH) != NULL) {
+          memset(resposta, VALOR_VAZIO, MAX_BUFFER);
+          fetch_dados(requisicao + strlen(FETCH), resposta);
+          write(clientes[i].fd, &resposta, strlen(resposta));
           continue;
         }
 
-        if (strstr(buffer, STORE_BLOCO)) {
-          store_bloco(buffer + strlen(STORE_BLOCO));
+        if (strstr(requisicao, STORE_BLOCO) != NULL) {
+          store_bloco(requisicao + strlen(STORE_BLOCO));
           continue;
         }
 
-        if (strstr(buffer, STORE)) {
-          store_dados(buffer + strlen(STORE));
+        if (strstr(requisicao, STORE) != NULL) {
+          store_dados(requisicao + strlen(STORE));
           continue;
         }
       }
