@@ -89,8 +89,10 @@ void criar_processos() {
 void criar_blocos_processo() {
   num_blocos_processo = num_blocos / num_processos;
   blocos = malloc(sizeof(bloco_t) * num_blocos_processo);
+
+  int offset_blocos_processo = id_processo * num_blocos_processo;
   for (int i = 0; i < num_blocos_processo; i++) {
-    blocos[i].id = i + (id_processo * num_blocos_processo);
+    blocos[i].id = i + offset_blocos_processo;
     blocos[i].enderecos = malloc(sizeof(char) * tam_blocos);
     memset(blocos[i].enderecos, VALOR_VAZIO, tam_blocos);
   }
@@ -109,6 +111,10 @@ void limpar_processo() {
   }
   free(blocos);
   free(mapeamento_portas);
+}
+
+int validar_posicao_fora_limite_memoria(int posicao_inicial, int n_bytes) {
+  return posicao_inicial < 0 || (posicao_inicial + n_bytes) > (num_blocos * tam_blocos);
 }
 
 void obter_dados_bloco(int id_bloco, char* destino) {
@@ -182,7 +188,7 @@ void fetch_dados(char* parametros, char* buffer) {
   int posicao_inicial = atoi(strtok(parametros, ESPACO));
   int n_bytes = atoi(strtok(NULL, ESPACO));
 
-  if ((posicao_inicial + n_bytes) > (num_blocos * tam_blocos)) {
+  if (validar_posicao_fora_limite_memoria(posicao_inicial, n_bytes)) {
     printf("[PROCESSO %d] Acesso fora do limite da memória\n", id_processo);
     return;
   }
@@ -219,7 +225,7 @@ void store_dados(char* parametros) {
   int tamanho_conteudo = strlen(conteudo);
   n_bytes = n_bytes > tamanho_conteudo ? tamanho_conteudo : n_bytes;
 
-  if ((posicao_inicial + n_bytes) > (num_blocos * tam_blocos)) {
+  if (validar_posicao_fora_limite_memoria(posicao_inicial, n_bytes)) {
     printf("[PROCESSO %d] Acesso fora do limite da memória\n", id_processo);
     return;
   }
