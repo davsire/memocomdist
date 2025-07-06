@@ -76,6 +76,10 @@ void obter_parametros_aplicacao(int argc, char** argv) {
     printf("Informe o tamanho dos blocos (-t)\n");
     exit(EXIT_FAILURE);
   }
+  if (num_blocos % num_processos != 0) {
+    printf("O número de blocos deve ser divisível pelo número de processos!\n");
+    exit(EXIT_FAILURE);
+  }
 }
 
 void criar_processos() {
