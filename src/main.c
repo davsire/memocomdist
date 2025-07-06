@@ -132,6 +132,16 @@ void mapear_portas() {
   }
 }
 
+void criar_cache() {
+  cache = malloc(sizeof(cache_t) * tam_cache);
+  for (int i = 0; i < tam_cache; i++) {
+    cache[i].id = VALOR_VAZIO;
+    cache[i].enderecos = malloc(sizeof(char) * tam_blocos);
+    memset(cache[i].enderecos, VALOR_VAZIO, tam_blocos);
+    cache[i].timestamp = VALOR_VAZIO;
+  }
+}
+
 char* obter_bloco_cache(int id_bloco) {
   for (int i = 0; i < tam_cache; i++) {
     if (cache[i].id == id_bloco) {
