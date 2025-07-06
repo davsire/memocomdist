@@ -13,7 +13,7 @@
 #define PARAM_NUM_PROCESSOS "-p="
 #define PARAM_NUM_BLOCOS "-b="
 #define PARAM_TAM_BLOCOS "-t="
-#define IGUAL "="
+#define IGUAL '='
 #define ESPACO " "
 #define LOCALHOST "127.0.0.1"
 #define PORTA_INICIAL 50000
@@ -52,15 +52,15 @@ void obter_parametros_aplicacao(int argc, char** argv) {
   }
   for (int i = 1; i < argc; i++) {
     if (strstr(argv[i], PARAM_NUM_PROCESSOS) != NULL) {
-      num_processos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      num_processos = atoi(strchr(argv[i], IGUAL) + 1);
       continue;
     }
     if (strstr(argv[i], PARAM_NUM_BLOCOS) != NULL) {
-      num_blocos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      num_blocos = atoi(strchr(argv[i], IGUAL) + 1);
       continue;
     }
     if (strstr(argv[i], PARAM_TAM_BLOCOS) != NULL) {
-      tam_blocos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      tam_blocos = atoi(strchr(argv[i], IGUAL) + 1);
       continue;
     }
   }
