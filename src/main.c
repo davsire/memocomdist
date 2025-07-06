@@ -15,22 +15,24 @@
 #define PARAM_NUM_BLOCOS "-b="
 #define PARAM_TAM_BLOCOS "-t="
 #define PARAM_TAM_CACHE "-c="
-#define IGUAL "="
+#define IGUAL '='
 #define ESPACO " "
 #define LOCALHOST "127.0.0.1"
 #define PORTA_INICIAL 50000
-#define LIMITE_CONEXOES 10
+#define LIMITE_CLIENTES 10
 #define MAX_BUFFER 4096
 #define VALOR_VAZIO 0xFF
 #define FETCH "FETCH"
 #define FETCH_BLOCO "FETCH_BLOCO"
 #define STORE "STORE"
 #define STORE_BLOCO "STORE_BLOCO"
+#define SUCESSO 0
+#define MSG_MALFORMADA 1
+#define FORA_LIMITE_MEMORIA 2
+#define LIMITE_CONEXOES_ATINGIDO 3
 
 // Lista de TO-DOs (remover na medida que concluir)
 // - Implementar cache (com coerência)
-// - Criar formato de resposta de erro
-// - Criar arquivo lib para API
 
 typedef struct Bloco {
   int id;
@@ -65,19 +67,19 @@ void obter_parametros_aplicacao(int argc, char** argv) {
   }
   for (int i = 1; i < argc; i++) {
     if (strstr(argv[i], PARAM_NUM_PROCESSOS) != NULL) {
-      num_processos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      num_processos = atoi(strchr(argv[i], IGUAL) + 1);
       continue;
     }
     if (strstr(argv[i], PARAM_NUM_BLOCOS) != NULL) {
-      num_blocos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      num_blocos = atoi(strchr(argv[i], IGUAL) + 1);
       continue;
     }
     if (strstr(argv[i], PARAM_TAM_BLOCOS) != NULL) {
-      tam_blocos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      tam_blocos = atoi(strchr(argv[i], IGUAL) + 1);
       continue;
     }
     if (strstr(argv[i], PARAM_TAM_CACHE) != NULL) {
-      tam_cache = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      tam_cache = atoi(strchr(argv[i], IGUAL) + 1);
       continue;
     }
   }
@@ -95,6 +97,10 @@ void obter_parametros_aplicacao(int argc, char** argv) {
   }
   if (tam_cache <= 0) {
     printf("Informe o tamanho do cache (-c)\n");
+    exit(EXIT_FAILURE);
+  }
+  if (num_blocos % num_processos != 0) {
+    printf("O número de blocos deve ser divisível pelo número de processos!\n");
     exit(EXIT_FAILURE);
   }
 }
@@ -194,6 +200,30 @@ void limpar_cache() {
   free(cache);
 }
 
+void inicializar_socket_processo(int* sock_fd) {
+  struct sockaddr_in endereco;
+  endereco.sin_family = AF_INET;
+  endereco.sin_addr.s_addr = inet_addr(LOCALHOST);
+  endereco.sin_port = htons(PORTA_INICIAL + id_processo);
+
+  if ((*sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    printf("[PROCESSO %d] Erro ao criar socket principal\n", id_processo);
+    exit(EXIT_FAILURE);
+  }
+
+  if (bind(*sock_fd, (struct sockaddr *)&endereco, sizeof(endereco)) == -1) {
+    printf("[PROCESSO %d] Erro ao associar porta ao socket\n", id_processo);
+    close(*sock_fd);
+    exit(EXIT_FAILURE);
+  }
+
+  if (listen(*sock_fd, num_processos - 1 + LIMITE_CLIENTES) == -1) {
+    printf("[PROCESSO %d] Erro ao criar limite de conexões\n", id_processo);
+    close(*sock_fd);
+    exit(EXIT_FAILURE);
+  }
+}
+
 void limpar_processo() {
   for (int i = 0; i < num_blocos_processo; i++) {
     free(blocos[i].enderecos);
@@ -226,7 +256,7 @@ int validar_erro_mensagem_protocolo(char* metodo, char* mensagem) {
   regfree(&regex);
 
   if (erro) {
-    printf("[PROCESSO %d] Mensagem '%s' malformada\n", id_processo, metodo);
+    printf("[PROCESSO %d] Mensagem '%s' malformada: %s\n", id_processo, metodo, mensagem);
   }
   return erro;
 }
@@ -309,8 +339,10 @@ void salvar_dados_bloco(int id_bloco, char* origem) {
 void fetch_dados(char* parametros, char* buffer) {
   int posicao_inicial = atoi(strtok(parametros, ESPACO));
   int n_bytes = atoi(strtok(NULL, ESPACO));
+  char dados[MAX_BUFFER];
 
   if (validar_posicao_fora_limite_memoria(posicao_inicial, n_bytes)) {
+    sprintf(buffer, "%d\n", FORA_LIMITE_MEMORIA);
     return;
   }
 
@@ -327,11 +359,11 @@ void fetch_dados(char* parametros, char* buffer) {
       obter_dados_bloco(id_bloco, bloco_atual.enderecos);
     }
 
-    buffer[i] = bloco_atual.enderecos[endereco_bloco];
+    dados[i] = bloco_atual.enderecos[endereco_bloco];
   }
 
   free(bloco_atual.enderecos);
-  buffer[n_bytes] = '\0';
+  sprintf(buffer, "%d\n%s", SUCESSO, dados);
 }
 
 void fetch_bloco(char* parametros, char* buffer) {
@@ -339,7 +371,7 @@ void fetch_bloco(char* parametros, char* buffer) {
   memcpy(buffer, blocos[id_bloco % num_blocos_processo].enderecos, tam_blocos);
 }
 
-void store_dados(char* parametros) {
+void store_dados(char* parametros, char* buffer) {
   int posicao_inicial = atoi(strtok(parametros, ESPACO));
   int n_bytes = atoi(strtok(NULL, ESPACO));
   char* conteudo = strtok(NULL, "");
@@ -347,6 +379,7 @@ void store_dados(char* parametros) {
   n_bytes = n_bytes > tamanho_conteudo ? tamanho_conteudo : n_bytes;
 
   if (validar_posicao_fora_limite_memoria(posicao_inicial, n_bytes)) {
+    sprintf(buffer, "%d\n", FORA_LIMITE_MEMORIA);
     return;
   }
 
@@ -371,6 +404,7 @@ void store_dados(char* parametros) {
   }
 
   salvar_dados_bloco(bloco_atual.id, bloco_atual.enderecos);
+  sprintf(buffer, "%d\n", SUCESSO);
 }
 
 void store_bloco(char* parametros) {
@@ -391,42 +425,16 @@ int main(int argc, char** argv) {
   mapear_portas();
 
   int sock_fd, cliente_fd;
-  struct sockaddr_in endereco, end_cliente;
+  struct sockaddr_in end_cliente;
   socklen_t tam_end_cliente = sizeof(end_cliente);
   char requisicao[MAX_BUFFER];
   char resposta[MAX_BUFFER];
   int n_bytes;
 
-  endereco.sin_family = AF_INET;
-  endereco.sin_addr.s_addr = inet_addr(LOCALHOST);
-  endereco.sin_port = htons(PORTA_INICIAL + id_processo);
+  inicializar_socket_processo(&sock_fd);
 
-  if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-    printf("[PROCESSO %d] Erro ao criar socket principal\n", id_processo);
-    exit(EXIT_FAILURE);
-  }
-
-  int opt = 1;
-  if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-    printf("[PROCESSO %d] Erro ao configurar socket\n", id_processo);
-    close(sock_fd);
-    exit(EXIT_FAILURE);
-  }
-
-  if (bind(sock_fd, (struct sockaddr *)&endereco, sizeof(endereco)) == -1) {
-    printf("[PROCESSO %d] Erro ao associar porta ao socket\n", id_processo);
-    close(sock_fd);
-    exit(EXIT_FAILURE);
-  }
-
-  if (listen(sock_fd, LIMITE_CONEXOES) == -1) {
-    printf("[PROCESSO %d] Erro ao criar limite de conexões\n", id_processo);
-    close(sock_fd);
-    exit(EXIT_FAILURE);
-  }
-
-  struct pollfd clientes[num_processos];
-  for (int i = 0; i < num_processos; i++) {
+  struct pollfd clientes[num_processos + LIMITE_CLIENTES];
+  for (int i = 0; i < num_processos + LIMITE_CLIENTES; i++) {
     clientes[i].fd = VALOR_VAZIO;
   }
 
@@ -435,7 +443,7 @@ int main(int argc, char** argv) {
 
   printf("[PROCESSO %d] Processo iniciado!\n", id_processo);
   while (!fim_programa) {
-    if (poll(clientes, num_processos, -1) == -1) {
+    if (poll(clientes, num_processos + LIMITE_CLIENTES, -1) == -1) {
       if (errno == EINTR) {
         break;
       }
@@ -452,16 +460,26 @@ int main(int argc, char** argv) {
         continue;
       }
 
-      for (int i = 1; i < num_processos; i++) {
+      int indice_cliente_disponivel = VALOR_VAZIO;
+      for (int i = 1; i < num_processos + LIMITE_CLIENTES; i++) {
         if (clientes[i].fd == VALOR_VAZIO) {
-          clientes[i].fd = cliente_fd;
-          clientes[i].events = POLLIN;
+          indice_cliente_disponivel = i;
           break;
         }
       }
+
+      if (indice_cliente_disponivel == VALOR_VAZIO) {
+        memset(resposta, VALOR_VAZIO, MAX_BUFFER);
+        sprintf(resposta, "%d\n", LIMITE_CONEXOES_ATINGIDO);
+        write(cliente_fd, &resposta, strlen(resposta));
+        close(cliente_fd);
+      } else {
+        clientes[indice_cliente_disponivel].fd = cliente_fd;
+        clientes[indice_cliente_disponivel].events = POLLIN;
+      }
     }
 
-    for (int i = 1; i < num_processos; i++) {
+    for (int i = 1; i < num_processos + LIMITE_CLIENTES; i++) {
       if (clientes[i].fd != VALOR_VAZIO && (clientes[i].revents & POLLIN)) {
         n_bytes = read(clientes[i].fd, &requisicao, MAX_BUFFER);
 
@@ -475,47 +493,49 @@ int main(int argc, char** argv) {
         printf("[PROCESSO %d] Mensagem recebida: %s\n", id_processo, requisicao);
 
         if (strstr(requisicao, FETCH_BLOCO) != NULL) {
-          if (validar_erro_mensagem_protocolo(FETCH_BLOCO, requisicao)) {
-            continue;
+          if (!validar_erro_mensagem_protocolo(FETCH_BLOCO, requisicao)) {
+            memset(resposta, VALOR_VAZIO, MAX_BUFFER);
+            fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
+            write(clientes[i].fd, &resposta, tam_blocos);
           }
-          memset(resposta, VALOR_VAZIO, MAX_BUFFER);
-          fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
-          write(clientes[i].fd, &resposta, tam_blocos);
           continue;
         }
 
         if (strstr(requisicao, FETCH) != NULL) {
-          if (validar_erro_mensagem_protocolo(FETCH, requisicao)) {
-            continue;
-          }
           memset(resposta, VALOR_VAZIO, MAX_BUFFER);
-          fetch_dados(requisicao + strlen(FETCH), resposta);
+          if (validar_erro_mensagem_protocolo(FETCH, requisicao)) {
+            sprintf(resposta, "%d\n", MSG_MALFORMADA);
+          } else {
+            fetch_dados(requisicao + strlen(FETCH), resposta);
+          }
           write(clientes[i].fd, &resposta, strlen(resposta));
           continue;
         }
 
         if (strstr(requisicao, STORE_BLOCO) != NULL) {
-          if (validar_erro_mensagem_protocolo(STORE_BLOCO, requisicao)) {
-            continue;
+          if (!validar_erro_mensagem_protocolo(STORE_BLOCO, requisicao)) {
+            store_bloco(requisicao + strlen(STORE_BLOCO));
           }
-          store_bloco(requisicao + strlen(STORE_BLOCO));
           continue;
         }
 
         if (strstr(requisicao, STORE) != NULL) {
+          memset(resposta, VALOR_VAZIO, MAX_BUFFER);
           if (validar_erro_mensagem_protocolo(STORE, requisicao)) {
-            continue;
+            sprintf(resposta, "%d\n", MSG_MALFORMADA);
+          } else {
+            store_dados(requisicao + strlen(STORE), resposta);
           }
-          store_dados(requisicao + strlen(STORE));
+          write(clientes[i].fd, &resposta, strlen(resposta));
           continue;
         }
       }
     }
   }
 
-  limpar_processo();
-  for (int i = 0; i < num_processos; i++) {
+  for (int i = 0; i < num_processos + LIMITE_CLIENTES; i++) {
     close(clientes[i].fd);
   }
+  limpar_processo();
   exit(EXIT_SUCCESS);
 }
