@@ -1,14 +1,20 @@
-#include <arpa/inet.h>
-#include <errno.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <regex.h>
-#include <signal.h>
+#include <stdio.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <poll.h>
+#include <signal.h>
+#include <errno.h>
+#include <regex.h>
+#include <time.h>
 
 #define PARAM_NUM_PROCESSOS "-p="
 #define PARAM_NUM_BLOCOS "-b="
