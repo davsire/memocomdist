@@ -24,11 +24,12 @@
 #define FETCH_BLOCO "FETCH_BLOCO"
 #define STORE "STORE"
 #define STORE_BLOCO "STORE_BLOCO"
+#define SUCESSO 0
+#define MSG_MALFORMADA 1
+#define FORA_LIMITE_MEMORIA 2
 
 // Lista de TO-DOs (remover na medida que concluir)
 // - Implementar cache (com coerência)
-// - Criar formato de resposta de erro
-// - Criar arquivo lib para API
 
 typedef struct Bloco {
   int id;
@@ -218,8 +219,10 @@ void salvar_dados_bloco(int id_bloco, char* origem) {
 void fetch_dados(char* parametros, char* buffer) {
   int posicao_inicial = atoi(strtok(parametros, ESPACO));
   int n_bytes = atoi(strtok(NULL, ESPACO));
+  char dados[MAX_BUFFER];
 
   if (validar_posicao_fora_limite_memoria(posicao_inicial, n_bytes)) {
+    sprintf(buffer, "%d\n", FORA_LIMITE_MEMORIA);
     return;
   }
 
@@ -236,11 +239,11 @@ void fetch_dados(char* parametros, char* buffer) {
       obter_dados_bloco(id_bloco, bloco_atual.enderecos);
     }
 
-    buffer[i] = bloco_atual.enderecos[endereco_bloco];
+    dados[i] = bloco_atual.enderecos[endereco_bloco];
   }
 
   free(bloco_atual.enderecos);
-  buffer[n_bytes] = '\0';
+  sprintf(buffer, "%d\n%s", SUCESSO, dados);
 }
 
 void fetch_bloco(char* parametros, char* buffer) {
@@ -248,7 +251,7 @@ void fetch_bloco(char* parametros, char* buffer) {
   memcpy(buffer, blocos[id_bloco % num_blocos_processo].enderecos, tam_blocos);
 }
 
-void store_dados(char* parametros) {
+void store_dados(char* parametros, char* buffer) {
   int posicao_inicial = atoi(strtok(parametros, ESPACO));
   int n_bytes = atoi(strtok(NULL, ESPACO));
   char* conteudo = strtok(NULL, "");
@@ -256,6 +259,7 @@ void store_dados(char* parametros) {
   n_bytes = n_bytes > tamanho_conteudo ? tamanho_conteudo : n_bytes;
 
   if (validar_posicao_fora_limite_memoria(posicao_inicial, n_bytes)) {
+    sprintf(buffer, "%d\n", FORA_LIMITE_MEMORIA);
     return;
   }
 
@@ -280,6 +284,7 @@ void store_dados(char* parametros) {
   }
 
   salvar_dados_bloco(bloco_atual.id, bloco_atual.enderecos);
+  sprintf(buffer, "%d\n", SUCESSO);
 }
 
 void store_bloco(char* parametros) {
@@ -377,38 +382,40 @@ int main(int argc, char** argv) {
         printf("[PROCESSO %d] Mensagem recebida: %s\n", id_processo, requisicao);
 
         if (strstr(requisicao, FETCH_BLOCO) != NULL) {
-          if (validar_erro_mensagem_protocolo(FETCH_BLOCO, requisicao)) {
-            continue;
+          if (!validar_erro_mensagem_protocolo(FETCH_BLOCO, requisicao)) {
+            memset(resposta, VALOR_VAZIO, MAX_BUFFER);
+            fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
+            write(clientes[i].fd, &resposta, tam_blocos);
           }
-          memset(resposta, VALOR_VAZIO, MAX_BUFFER);
-          fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
-          write(clientes[i].fd, &resposta, tam_blocos);
           continue;
         }
 
         if (strstr(requisicao, FETCH) != NULL) {
-          if (validar_erro_mensagem_protocolo(FETCH, requisicao)) {
-            continue;
-          }
           memset(resposta, VALOR_VAZIO, MAX_BUFFER);
-          fetch_dados(requisicao + strlen(FETCH), resposta);
+          if (validar_erro_mensagem_protocolo(FETCH, requisicao)) {
+            sprintf(resposta, "%d\n", MSG_MALFORMADA);
+          } else {
+            fetch_dados(requisicao + strlen(FETCH), resposta);
+          }
           write(clientes[i].fd, &resposta, strlen(resposta));
           continue;
         }
 
         if (strstr(requisicao, STORE_BLOCO) != NULL) {
-          if (validar_erro_mensagem_protocolo(STORE_BLOCO, requisicao)) {
-            continue;
+          if (!validar_erro_mensagem_protocolo(STORE_BLOCO, requisicao)) {
+            store_bloco(requisicao + strlen(STORE_BLOCO));
           }
-          store_bloco(requisicao + strlen(STORE_BLOCO));
           continue;
         }
 
         if (strstr(requisicao, STORE) != NULL) {
+          memset(resposta, VALOR_VAZIO, MAX_BUFFER);
           if (validar_erro_mensagem_protocolo(STORE, requisicao)) {
-            continue;
+            sprintf(resposta, "%d\n", MSG_MALFORMADA);
+          } else {
+            store_dados(requisicao + strlen(STORE), resposta);
           }
-          store_dados(requisicao + strlen(STORE));
+          write(clientes[i].fd, &resposta, strlen(resposta));
           continue;
         }
       }
