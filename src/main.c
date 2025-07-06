@@ -17,7 +17,7 @@
 #define ESPACO " "
 #define LOCALHOST "127.0.0.1"
 #define PORTA_INICIAL 50000
-#define LIMITE_CONEXOES 10
+#define LIMITE_CLIENTES 10
 #define MAX_BUFFER 4096
 #define VALOR_VAZIO 0xFF
 #define FETCH "FETCH"
@@ -27,6 +27,7 @@
 #define SUCESSO 0
 #define MSG_MALFORMADA 1
 #define FORA_LIMITE_MEMORIA 2
+#define LIMITE_CONEXOES_ATINGIDO 3
 
 // Lista de TO-DOs (remover na medida que concluir)
 // - Implementar cache (com coerência)
@@ -110,6 +111,30 @@ void mapear_portas() {
   }
 }
 
+void inicializar_socket_processo(int* sock_fd) {
+  struct sockaddr_in endereco;
+  endereco.sin_family = AF_INET;
+  endereco.sin_addr.s_addr = inet_addr(LOCALHOST);
+  endereco.sin_port = htons(PORTA_INICIAL + id_processo);
+
+  if ((*sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    printf("[PROCESSO %d] Erro ao criar socket principal\n", id_processo);
+    exit(EXIT_FAILURE);
+  }
+
+  if (bind(*sock_fd, (struct sockaddr *)&endereco, sizeof(endereco)) == -1) {
+    printf("[PROCESSO %d] Erro ao associar porta ao socket\n", id_processo);
+    close(*sock_fd);
+    exit(EXIT_FAILURE);
+  }
+
+  if (listen(*sock_fd, num_processos - 1 + LIMITE_CLIENTES) == -1) {
+    printf("[PROCESSO %d] Erro ao criar limite de conexões\n", id_processo);
+    close(*sock_fd);
+    exit(EXIT_FAILURE);
+  }
+}
+
 void limpar_processo() {
   for (int i = 0; i < num_blocos_processo; i++) {
     free(blocos[i].enderecos);
@@ -140,7 +165,7 @@ int validar_erro_mensagem_protocolo(char* metodo, char* mensagem) {
   regfree(&regex);
 
   if (erro) {
-    printf("[PROCESSO %d] Mensagem '%s' malformada\n", id_processo, metodo);
+    printf("[PROCESSO %d] Mensagem '%s' malformada: %s\n", id_processo, metodo, mensagem);
   }
   return erro;
 }
@@ -309,35 +334,16 @@ int main(int argc, char** argv) {
   mapear_portas();
 
   int sock_fd, cliente_fd;
-  struct sockaddr_in endereco, end_cliente;
+  struct sockaddr_in end_cliente;
   socklen_t tam_end_cliente = sizeof(end_cliente);
   char requisicao[MAX_BUFFER];
   char resposta[MAX_BUFFER];
   int n_bytes;
 
-  endereco.sin_family = AF_INET;
-  endereco.sin_addr.s_addr = inet_addr(LOCALHOST);
-  endereco.sin_port = htons(PORTA_INICIAL + id_processo);
+  inicializar_socket_processo(&sock_fd);
 
-  if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-    printf("[PROCESSO %d] Erro ao criar socket principal\n", id_processo);
-    exit(EXIT_FAILURE);
-  }
-
-  if (bind(sock_fd, (struct sockaddr *)&endereco, sizeof(endereco)) == -1) {
-    printf("[PROCESSO %d] Erro ao associar porta ao socket\n", id_processo);
-    close(sock_fd);
-    exit(EXIT_FAILURE);
-  }
-
-  if (listen(sock_fd, LIMITE_CONEXOES) == -1) {
-    printf("[PROCESSO %d] Erro ao criar limite de conexões\n", id_processo);
-    close(sock_fd);
-    exit(EXIT_FAILURE);
-  }
-
-  struct pollfd clientes[num_processos];
-  for (int i = 0; i < num_processos; i++) {
+  struct pollfd clientes[num_processos + LIMITE_CLIENTES];
+  for (int i = 0; i < num_processos + LIMITE_CLIENTES; i++) {
     clientes[i].fd = VALOR_VAZIO;
   }
 
@@ -346,7 +352,7 @@ int main(int argc, char** argv) {
 
   printf("[PROCESSO %d] Processo iniciado!\n", id_processo);
   while (!fim_programa) {
-    if (poll(clientes, num_processos, -1) == -1) {
+    if (poll(clientes, num_processos + LIMITE_CLIENTES, -1) == -1) {
       if (errno == EINTR) {
         break;
       }
@@ -363,16 +369,26 @@ int main(int argc, char** argv) {
         continue;
       }
 
-      for (int i = 1; i < num_processos; i++) {
+      int indice_cliente_disponivel = VALOR_VAZIO;
+      for (int i = 1; i < num_processos + LIMITE_CLIENTES; i++) {
         if (clientes[i].fd == VALOR_VAZIO) {
-          clientes[i].fd = cliente_fd;
-          clientes[i].events = POLLIN;
+          indice_cliente_disponivel = i;
           break;
         }
       }
+
+      if (indice_cliente_disponivel == VALOR_VAZIO) {
+        memset(resposta, VALOR_VAZIO, MAX_BUFFER);
+        sprintf(resposta, "%d\n", LIMITE_CONEXOES_ATINGIDO);
+        write(cliente_fd, &resposta, strlen(resposta));
+        close(cliente_fd);
+      } else {
+        clientes[indice_cliente_disponivel].fd = cliente_fd;
+        clientes[indice_cliente_disponivel].events = POLLIN;
+      }
     }
 
-    for (int i = 1; i < num_processos; i++) {
+    for (int i = 1; i < num_processos + LIMITE_CLIENTES; i++) {
       if (clientes[i].fd != VALOR_VAZIO && (clientes[i].revents & POLLIN)) {
         n_bytes = read(clientes[i].fd, &requisicao, MAX_BUFFER);
 
@@ -426,9 +442,9 @@ int main(int argc, char** argv) {
     }
   }
 
-  limpar_processo();
-  for (int i = 0; i < num_processos; i++) {
+  for (int i = 0; i < num_processos + LIMITE_CLIENTES; i++) {
     close(clientes[i].fd);
   }
+  limpar_processo();
   exit(EXIT_SUCCESS);
 }
