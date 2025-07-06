@@ -1,18 +1,19 @@
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <regex.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <poll.h>
-#include <signal.h>
-#include <errno.h>
-#include <regex.h>
+#include <unistd.h>
 
 #define PARAM_NUM_PROCESSOS "-p="
 #define PARAM_NUM_BLOCOS "-b="
 #define PARAM_TAM_BLOCOS "-t="
+#define PARAM_TAM_CACHE "-c="
 #define IGUAL "="
 #define ESPACO " "
 #define LOCALHOST "127.0.0.1"
@@ -33,20 +34,32 @@
 typedef struct Bloco {
   int id;
   char* enderecos;
+  int* leitores;
+  int num_leitores;
 } bloco_t;
+
+typedef struct Cache {
+  int id;
+  char* enderecos;
+  time_t timestamp;
+} cache_t;
 
 int fim_programa = 0;
 int num_processos = 0;
 int num_blocos = 0;
 int tam_blocos = 0;
 int num_blocos_processo = 0;
+int tam_cache = 0;
 int id_processo = 0;
 bloco_t* blocos;
+cache_t* cache;
 int* mapeamento_portas;
 
 void obter_parametros_aplicacao(int argc, char** argv) {
-  if (argc < 4) {
-    printf("Informe os parâmetros:\n-p (número de processos)\n-b (número de blocos)\n-t (tamanho dos blocos)\n");
+  if (argc < 5) {
+    printf(
+        "Informe os parâmetros:\n-p (número de processos)\n-b (número de "
+        "blocos)\n-t (tamanho dos blocos)\n -c (tamanho do cache)\n ");
     exit(EXIT_FAILURE);
   }
   for (int i = 1; i < argc; i++) {
@@ -62,6 +75,10 @@ void obter_parametros_aplicacao(int argc, char** argv) {
       tam_blocos = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
       continue;
     }
+    if (strstr(argv[i], PARAM_TAM_CACHE) != NULL) {
+      tam_cache = atoi(argv[i] + strcspn(argv[i], IGUAL) + 1);
+      continue;
+    }
   }
   if (num_processos <= 0) {
     printf("Informe o número de processos (-p)\n");
@@ -73,6 +90,10 @@ void obter_parametros_aplicacao(int argc, char** argv) {
   }
   if (tam_blocos <= 0) {
     printf("Informe o tamanho dos blocos (-t)\n");
+    exit(EXIT_FAILURE);
+  }
+  if (tam_cache <= 0) {
+    printf("Informe o tamanho do cache (-c)\n");
     exit(EXIT_FAILURE);
   }
 }
@@ -95,6 +116,11 @@ void criar_blocos_processo() {
     blocos[i].id = i + offset_blocos_processo;
     blocos[i].enderecos = malloc(sizeof(char) * tam_blocos);
     memset(blocos[i].enderecos, VALOR_VAZIO, tam_blocos);
+    blocos[i].leitores = malloc(sizeof(int) * num_processos);
+    for (int j = 0; j < num_processos; j++) {
+      blocos[i].leitores[j] = VALOR_VAZIO;
+    }
+    blocos[i].num_leitores = 0;
   }
 }
 
@@ -105,11 +131,65 @@ void mapear_portas() {
   }
 }
 
+char* obter_bloco_cache(int id_bloco) {
+  for (int i = 0; i < tam_cache; i++) {
+    if (cache[i].id == id_bloco) {
+      cache[i].timestamp = time(NULL);
+      return cache[i].enderecos;
+    }
+  }
+  return NULL;
+}
+
+void adicionar_bloco_cache(int id_bloco, char* enderecos) {
+  int pos_vazia = -1;
+  int pos_antiga = -1;
+  time_t timestamp_antigo = -1;
+
+  for (int i = 0; i < tam_cache; i++) {
+    if (cache[i].id == VALOR_VAZIO && pos_vazia == -1) {
+      pos_vazia = i;
+    }
+    if (timestamp_antigo == -1 || cache[i].timestamp < timestamp_antigo) {
+      timestamp_antigo = cache[i].timestamp;
+      pos_antiga = i;
+    }
+  }
+
+  if (pos_vazia != -1) {
+    pos_antiga = pos_vazia;
+  }
+
+  cache[pos_antiga].id = id_bloco;
+  memcpy(cache[pos_antiga].enderecos, enderecos, tam_blocos);
+  cache[pos_antiga].timestamp = time(NULL);
+}
+
+void invalidar_bloco_cache(int id_bloco) {
+  for (int i = 0; i < tam_cache; i++) {
+    if (cache[i].id == id_bloco) {
+      cache[i].id = VALOR_VAZIO;
+      memset(cache[i].enderecos, VALOR_VAZIO, tam_blocos);
+      cache[i].timestamp = VALOR_VAZIO;
+      break;
+    }
+  }
+}
+
+void limpar_cache() {
+  for (int i = 0; i < tam_cache; i++) {
+    free(cache[i].enderecos);
+  }
+  free(cache);
+}
+
 void limpar_processo() {
   for (int i = 0; i < num_blocos_processo; i++) {
     free(blocos[i].enderecos);
+    free(blocos[i].leitores);
   }
   free(blocos);
+  limpar_cache();
   free(mapeamento_portas);
 }
 
@@ -312,6 +392,13 @@ int main(int argc, char** argv) {
 
   if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
     printf("[PROCESSO %d] Erro ao criar socket principal\n", id_processo);
+    exit(EXIT_FAILURE);
+  }
+
+  int opt = 1;
+  if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+    printf("[PROCESSO %d] Erro ao configurar socket\n", id_processo);
+    close(sock_fd);
     exit(EXIT_FAILURE);
   }
 
