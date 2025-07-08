@@ -278,7 +278,7 @@ void adicionar_leitor_bloco(int id_bloco, int id_processo_leitor) {
   bloco->num_leitores++;
 }
 
-void invalidar_cache_bloco_leitores(int id_bloco) {
+void invalidar_bloco_cache_leitores(int id_bloco) {
   bloco_t* bloco_alterado = &blocos[id_bloco % num_blocos_processo];
   char buffer[MAX_BUFFER];
   sprintf(buffer, "%s %d", INVALIDATE_CACHE, id_bloco);
@@ -361,7 +361,7 @@ void salvar_dados_bloco(int id_bloco, char* origem) {
 
   if (processo_bloco == id_processo) {
     memcpy(blocos[id_bloco % num_blocos_processo].enderecos, origem, tam_blocos);
-    invalidar_cache_bloco_leitores(id_bloco);
+    invalidar_bloco_cache_leitores(id_bloco);
     return;
   }
 
@@ -466,7 +466,7 @@ void store_bloco(char* parametros) {
   int id_bloco = atoi(strtok(parametros, ESPACO));
   char* conteudo = strtok(NULL, "");
   memcpy(blocos[id_bloco % num_blocos_processo].enderecos, conteudo, tam_blocos);
-  invalidar_cache_bloco_leitores(id_bloco);
+  invalidar_bloco_cache_leitores(id_bloco);
 }
 
 void finalizar_programa() {
