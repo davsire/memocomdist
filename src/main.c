@@ -194,6 +194,17 @@ void invalidar_bloco_cache(int id_bloco) {
   }
 }
 
+void adicionar_leitor_bloco(int id_bloco, int id_leitor) {
+  bloco_t* bloco = &blocos[id_bloco % num_blocos_processo];
+  for (int i = 0; i < bloco->num_leitores; i++) {
+    if (bloco->leitores[i] == id_leitor) {
+      return;
+    }
+  }
+  bloco->leitores[bloco->num_leitores] = id_leitor;
+  bloco->num_leitores++;
+}
+
 void limpar_cache() {
   for (int i = 0; i < tam_cache; i++) {
     free(cache[i].enderecos);
@@ -243,13 +254,16 @@ int validar_erro_mensagem_protocolo(char* metodo, char* mensagem) {
     sprintf(expressao, "^%s [0-9]+ [0-9]+", FETCH);
   }
   else if (strcmp(metodo, FETCH_BLOCO) == 0) {
-    sprintf(expressao, "^%s [0-9]+", FETCH_BLOCO);
+    sprintf(expressao, "^%s [0-9]+ [0-9]+", FETCH_BLOCO);
   }
   else if (strcmp(metodo, STORE) == 0) {
     sprintf(expressao, "^%s [0-9]+ [0-9]+ .+", STORE);
   }
   else if (strcmp(metodo, STORE_BLOCO) == 0) {
     sprintf(expressao, "^%s [0-9]+ .{%d}", STORE_BLOCO, tam_blocos);
+  }
+  else if (strcmp(metodo, INVALIDATE) == 0) {
+    sprintf(expressao, "^%s [0-9]+", INVALIDATE);
   }
 
   regcomp(&regex, expressao, REG_EXTENDED | REG_NOSUB);
@@ -297,7 +311,7 @@ void obter_dados_bloco(int id_bloco, char* destino) {
     return;
   }
 
-  sprintf(buffer, "%s %d", FETCH_BLOCO, id_bloco);
+  sprintf(buffer, "%s %d %d", FETCH_BLOCO, id_processo, id_bloco);
   write(sock_fd, &buffer, MAX_BUFFER);
   read(sock_fd, &buffer, tam_blocos);
   close(sock_fd);
@@ -358,10 +372,12 @@ void fetch_dados(char* parametros, char* buffer) {
 
     if (endereco_cache != NULL) {
       memcpy(bloco_atual.enderecos, endereco_cache, tam_blocos);
+      printf("[PROCESSO %d] bloco %d lido do cache local\n", id_processo, id_bloco);
     } else if (bloco_atual.id != id_bloco) {
       bloco_atual.id = id_bloco;
       obter_dados_bloco(id_bloco, bloco_atual.enderecos);
       adicionar_bloco_cache(id_bloco, bloco_atual.enderecos);
+      printf("[PROCESSO %d] bloco %d adicionado ao cache local\n", id_processo, id_bloco);
     }
 
     dados[i] = bloco_atual.enderecos[endereco_bloco];
@@ -416,7 +432,38 @@ void store_bloco(char* parametros) {
   int id_bloco = atoi(strtok(parametros, ESPACO));
   char* conteudo = strtok(NULL, "");
   memcpy(blocos[id_bloco % num_blocos_processo].enderecos, conteudo, tam_blocos);
-  // @TODO: enviar notificação de cache invalidation
+
+  bloco_t* bloco = &blocos[id_bloco % num_blocos_processo];
+  for (int i = 0; i < bloco->num_leitores; i++) {
+    int id_leitor = bloco->leitores[i];
+    if (id_leitor == id_processo) {
+      continue;
+    }
+
+    char buffer[MAX_BUFFER];
+    int sock_fd;
+    struct sockaddr_in processo_end;
+
+    processo_end.sin_family = AF_INET;
+    processo_end.sin_addr.s_addr = inet_addr(LOCALHOST);
+    processo_end.sin_port = htons(mapeamento_portas[id_leitor]);
+
+    if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+      printf("[PROCESSO %d] Erro ao criar socket para invalidar bloco\n", id_processo);
+      continue;
+    }
+
+    if (connect(sock_fd, (struct sockaddr*)&processo_end, sizeof(processo_end)) == -1) {
+      printf("[PROCESSO %d] Erro ao se conectar com processo %d para invalidar bloco\n", id_processo, id_leitor);
+      close(sock_fd);
+      continue;
+    }
+
+    sprintf(buffer, "%s %d", INVALIDATE, id_bloco);
+    write(sock_fd, &buffer, strlen(buffer));
+    close(sock_fd);
+  }
+  bloco->num_leitores = 0;
 }
 
 void finalizar_programa() {
@@ -502,9 +549,21 @@ int main(int argc, char** argv) {
         if (strstr(requisicao, FETCH_BLOCO) != NULL) {
           if (!validar_erro_mensagem_protocolo(FETCH_BLOCO, requisicao)) {
             memset(resposta, VALOR_VAZIO, MAX_BUFFER);
-            fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
-            // @TODO: adicionar leitor correto ao bloco, como?
+            char* parametros = requisicao + strlen(FETCH_BLOCO) + 1;
+            int id_leitor = atoi(strtok(parametros, ESPACO));
+            int id_bloco = atoi(strtok(NULL, ESPACO));
+            adicionar_leitor_bloco(id_bloco, id_leitor);
+            fetch_bloco(parametros, resposta);
             write(clientes[i].fd, &resposta, tam_blocos);
+          }
+          continue;
+        }
+
+        if (strstr(requisicao, INVALIDATE) != NULL) {
+          if (!validar_erro_mensagem_protocolo(INVALIDATE, requisicao)) {
+            char* parametros = requisicao + strlen(INVALIDATE) + 1;
+            int id_bloco = atoi(parametros);
+            invalidar_bloco_cache(id_bloco);
           }
           continue;
         }
