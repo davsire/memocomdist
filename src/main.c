@@ -415,6 +415,7 @@ void fetch_dados(char* parametros, char* buffer) {
     dados[i] = bloco_atual.enderecos[endereco_bloco];
   }
 
+  dados[n_bytes] = '\0';
   free(bloco_atual.enderecos);
   sprintf(buffer, "%d\n%s", SUCESSO, dados);
 }
