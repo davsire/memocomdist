@@ -15,12 +15,13 @@ make all
 Execute o programa da seguinte forma:
 
 ```bash
-./memcomdist -p <numero_processos> -b <numero_blocos> -t <tamanho_blocos>
+./memcomdist -p <numero_processos> -b <numero_blocos> -t <tamanho_blocos> -c <tamanho_cache>
 ```
 
 - `<numero_processos>`: Número de processos do sistema que compartilham a memória.
 - `<numero_blocos>`: Número total de blocos da memória, repartido entre os processos.
 - `<tamanho_blocos>`: Tamanho em bytes dos blocos.
+- `<tamanho_cache>`: Tamanho em blocos do cache dos processos.
 
 ### Exemplo:
 

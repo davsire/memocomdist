@@ -26,14 +26,11 @@
 #define FETCH_BLOCO "FETCH_BLOCO"
 #define STORE "STORE"
 #define STORE_BLOCO "STORE_BLOCO"
-#define INVALIDATE "INVALIDATE"
+#define INVALIDATE_CACHE "INVALIDATE_CACHE"
 #define SUCESSO 0
 #define MSG_MALFORMADA 1
 #define FORA_LIMITE_MEMORIA 2
 #define LIMITE_CONEXOES_ATINGIDO 3
-
-// Lista de TO-DOs (remover na medida que concluir)
-// - Implementar cache (com coerência)
 
 typedef struct Bloco {
   int id;
@@ -62,8 +59,9 @@ int* mapeamento_portas;
 void obter_parametros_aplicacao(int argc, char** argv) {
   if (argc < 5) {
     printf(
-        "Informe os parâmetros:\n-p (número de processos)\n-b (número de "
-        "blocos)\n-t (tamanho dos blocos)\n-c (tamanho do cache)\n ");
+      "Informe os parâmetros:\n-p (número de processos)\n-b (número de blocos)\n"
+      "-t (tamanho dos blocos)\n-c (tamanho do cache)\n"
+    );
     exit(EXIT_FAILURE);
   }
   for (int i = 1; i < argc; i++) {
@@ -132,13 +130,6 @@ void criar_blocos_processo() {
   }
 }
 
-void mapear_portas() {
-  mapeamento_portas = malloc(sizeof(int) * num_processos);
-  for (int i = 0; i < num_processos; i++) {
-    mapeamento_portas[i] = PORTA_INICIAL + i;
-  }
-}
-
 void criar_cache() {
   cache = malloc(sizeof(cache_t) * tam_cache);
   for (int i = 0; i < tam_cache; i++) {
@@ -149,67 +140,11 @@ void criar_cache() {
   }
 }
 
-char* obter_bloco_cache(int id_bloco) {
-  for (int i = 0; i < tam_cache; i++) {
-    if (cache[i].id == id_bloco) {
-      cache[i].timestamp = time(NULL);
-      return cache[i].enderecos;
-    }
+void mapear_portas() {
+  mapeamento_portas = malloc(sizeof(int) * num_processos);
+  for (int i = 0; i < num_processos; i++) {
+    mapeamento_portas[i] = PORTA_INICIAL + i;
   }
-  return NULL;
-}
-
-void adicionar_bloco_cache(int id_bloco, char* enderecos) {
-  int pos_vazia = -1;
-  int pos_antiga = -1;
-  time_t timestamp_antigo = -1;
-
-  for (int i = 0; i < tam_cache; i++) {
-    if (cache[i].id == VALOR_VAZIO && pos_vazia == -1) {
-      pos_vazia = i;
-    }
-    if (timestamp_antigo == -1 || cache[i].timestamp < timestamp_antigo) {
-      timestamp_antigo = cache[i].timestamp;
-      pos_antiga = i;
-    }
-  }
-
-  if (pos_vazia != -1) {
-    pos_antiga = pos_vazia;
-  }
-
-  cache[pos_antiga].id = id_bloco;
-  memcpy(cache[pos_antiga].enderecos, enderecos, tam_blocos);
-  cache[pos_antiga].timestamp = time(NULL);
-}
-
-void invalidar_bloco_cache(int id_bloco) {
-  for (int i = 0; i < tam_cache; i++) {
-    if (cache[i].id == id_bloco) {
-      cache[i].id = VALOR_VAZIO;
-      memset(cache[i].enderecos, VALOR_VAZIO, tam_blocos);
-      cache[i].timestamp = VALOR_VAZIO;
-      break;
-    }
-  }
-}
-
-void adicionar_leitor_bloco(int id_bloco, int id_leitor) {
-  bloco_t* bloco = &blocos[id_bloco % num_blocos_processo];
-  for (int i = 0; i < bloco->num_leitores; i++) {
-    if (bloco->leitores[i] == id_leitor) {
-      return;
-    }
-  }
-  bloco->leitores[bloco->num_leitores] = id_leitor;
-  bloco->num_leitores++;
-}
-
-void limpar_cache() {
-  for (int i = 0; i < tam_cache; i++) {
-    free(cache[i].enderecos);
-  }
-  free(cache);
 }
 
 void inicializar_socket_processo(int* sock_fd) {
@@ -234,6 +169,13 @@ void inicializar_socket_processo(int* sock_fd) {
     close(*sock_fd);
     exit(EXIT_FAILURE);
   }
+}
+
+void limpar_cache() {
+  for (int i = 0; i < tam_cache; i++) {
+    free(cache[i].enderecos);
+  }
+  free(cache);
 }
 
 void limpar_processo() {
@@ -262,8 +204,8 @@ int validar_erro_mensagem_protocolo(char* metodo, char* mensagem) {
   else if (strcmp(metodo, STORE_BLOCO) == 0) {
     sprintf(expressao, "^%s [0-9]+ .{%d}", STORE_BLOCO, tam_blocos);
   }
-  else if (strcmp(metodo, INVALIDATE) == 0) {
-    sprintf(expressao, "^%s [0-9]+", INVALIDATE);
+  else if (strcmp(metodo, INVALIDATE_CACHE) == 0) {
+    sprintf(expressao, "^%s [0-9]+", INVALIDATE_CACHE);
   }
 
   regcomp(&regex, expressao, REG_EXTENDED | REG_NOSUB);
@@ -284,11 +226,105 @@ int validar_posicao_fora_limite_memoria(int posicao_inicial, int n_bytes) {
   return erro;
 }
 
+char* obter_bloco_cache(int id_bloco) {
+  for (int i = 0; i < tam_cache; i++) {
+    if (cache[i].id == id_bloco) {
+      cache[i].timestamp = time(NULL);
+      return cache[i].enderecos;
+    }
+  }
+  return NULL;
+}
+
+void adicionar_bloco_cache(int id_bloco, char* enderecos) {
+  int indice_cache_disponivel = -1;
+  time_t timestamp_antigo = -1;
+
+  for (int i = 0; i < tam_cache; i++) {
+    if (cache[i].id == VALOR_VAZIO) {
+      indice_cache_disponivel = i;
+      break;
+    }
+    if (timestamp_antigo == -1 || cache[i].timestamp < timestamp_antigo) {
+      timestamp_antigo = cache[i].timestamp;
+      indice_cache_disponivel = i;
+    }
+  }
+
+  cache[indice_cache_disponivel].id = id_bloco;
+  memcpy(cache[indice_cache_disponivel].enderecos, enderecos, tam_blocos);
+  cache[indice_cache_disponivel].timestamp = time(NULL);
+}
+
+void invalidar_bloco_cache(int id_bloco) {
+  for (int i = 0; i < tam_cache; i++) {
+    if (cache[i].id == id_bloco) {
+      cache[i].id = VALOR_VAZIO;
+      memset(cache[i].enderecos, VALOR_VAZIO, tam_blocos);
+      cache[i].timestamp = VALOR_VAZIO;
+      break;
+    }
+  }
+}
+
+void adicionar_leitor_bloco(int id_bloco, int id_processo_leitor) {
+  bloco_t* bloco = &blocos[id_bloco % num_blocos_processo];
+  for (int i = 0; i < bloco->num_leitores; i++) {
+    if (bloco->leitores[i] == id_processo_leitor) {
+      return;
+    }
+  }
+  bloco->leitores[bloco->num_leitores] = id_processo_leitor;
+  bloco->num_leitores++;
+}
+
+void invalidar_cache_bloco_leitores(int id_bloco) {
+  bloco_t* bloco_alterado = &blocos[id_bloco % num_blocos_processo];
+  char buffer[MAX_BUFFER];
+  sprintf(buffer, "%s %d", INVALIDATE_CACHE, id_bloco);
+
+  for (int i = 0; i < bloco_alterado->num_leitores; i++) {
+    int id_processo_leitor = bloco_alterado->leitores[i];
+    if (id_processo_leitor == id_processo) {
+      continue;
+    }
+
+    int sock_fd;
+    struct sockaddr_in processo_end;
+
+    processo_end.sin_family = AF_INET;
+    processo_end.sin_addr.s_addr = inet_addr(LOCALHOST);
+    processo_end.sin_port = htons(mapeamento_portas[id_processo_leitor]);
+
+    if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+      printf("[PROCESSO %d] Erro ao criar socket para invalidar cache de bloco\n", id_processo);
+      continue;
+    }
+
+    if (connect(sock_fd, (struct sockaddr*)&processo_end, sizeof(processo_end)) == -1) {
+      printf("[PROCESSO %d] Erro ao se conectar com processo %d para invalidar bloco\n", id_processo, id_processo_leitor);
+      close(sock_fd);
+      continue;
+    }
+
+    write(sock_fd, &buffer, strlen(buffer));
+    close(sock_fd);
+  }
+  bloco_alterado->num_leitores = 0;
+}
+
 void obter_dados_bloco(int id_bloco, char* destino) {
   int processo_bloco = id_bloco / num_blocos_processo;
 
   if (processo_bloco == id_processo) {
     memcpy(destino, blocos[id_bloco % num_blocos_processo].enderecos, tam_blocos);
+    return;
+  }
+
+  char* dados_bloco_cache = obter_bloco_cache(id_bloco);
+  if (dados_bloco_cache != NULL) {
+    printf("[PROCESSO %d] Bloco %d obtido pela cache\n", id_processo, id_bloco);
+    memcpy(destino, dados_bloco_cache, tam_blocos);
     return;
   }
 
@@ -316,6 +352,7 @@ void obter_dados_bloco(int id_bloco, char* destino) {
   read(sock_fd, &buffer, tam_blocos);
   close(sock_fd);
 
+  adicionar_bloco_cache(id_bloco, buffer);
   memcpy(destino, buffer, tam_blocos);
 }
 
@@ -324,6 +361,7 @@ void salvar_dados_bloco(int id_bloco, char* origem) {
 
   if (processo_bloco == id_processo) {
     memcpy(blocos[id_bloco % num_blocos_processo].enderecos, origem, tam_blocos);
+    invalidar_cache_bloco_leitores(id_bloco);
     return;
   }
 
@@ -368,16 +406,10 @@ void fetch_dados(char* parametros, char* buffer) {
   for (int i = 0; i < n_bytes; i++) {
     int id_bloco = (posicao_inicial + i) / tam_blocos;
     int endereco_bloco = (posicao_inicial + i) % tam_blocos;
-    char* endereco_cache = obter_bloco_cache(id_bloco);
 
-    if (endereco_cache != NULL) {
-      memcpy(bloco_atual.enderecos, endereco_cache, tam_blocos);
-      printf("[PROCESSO %d] bloco %d lido do cache local\n", id_processo, id_bloco);
-    } else if (bloco_atual.id != id_bloco) {
+    if (bloco_atual.id != id_bloco) {
       bloco_atual.id = id_bloco;
       obter_dados_bloco(id_bloco, bloco_atual.enderecos);
-      adicionar_bloco_cache(id_bloco, bloco_atual.enderecos);
-      printf("[PROCESSO %d] bloco %d adicionado ao cache local\n", id_processo, id_bloco);
     }
 
     dados[i] = bloco_atual.enderecos[endereco_bloco];
@@ -388,7 +420,9 @@ void fetch_dados(char* parametros, char* buffer) {
 }
 
 void fetch_bloco(char* parametros, char* buffer) {
-  int id_bloco = atoi(parametros);
+  int id_processo_leitor = atoi(strtok(parametros, ESPACO));
+  int id_bloco = atoi(strtok(NULL, ESPACO));
+  adicionar_leitor_bloco(id_bloco, id_processo_leitor);
   memcpy(buffer, blocos[id_bloco % num_blocos_processo].enderecos, tam_blocos);
 }
 
@@ -432,38 +466,7 @@ void store_bloco(char* parametros) {
   int id_bloco = atoi(strtok(parametros, ESPACO));
   char* conteudo = strtok(NULL, "");
   memcpy(blocos[id_bloco % num_blocos_processo].enderecos, conteudo, tam_blocos);
-
-  bloco_t* bloco = &blocos[id_bloco % num_blocos_processo];
-  for (int i = 0; i < bloco->num_leitores; i++) {
-    int id_leitor = bloco->leitores[i];
-    if (id_leitor == id_processo) {
-      continue;
-    }
-
-    char buffer[MAX_BUFFER];
-    int sock_fd;
-    struct sockaddr_in processo_end;
-
-    processo_end.sin_family = AF_INET;
-    processo_end.sin_addr.s_addr = inet_addr(LOCALHOST);
-    processo_end.sin_port = htons(mapeamento_portas[id_leitor]);
-
-    if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-      printf("[PROCESSO %d] Erro ao criar socket para invalidar bloco\n", id_processo);
-      continue;
-    }
-
-    if (connect(sock_fd, (struct sockaddr*)&processo_end, sizeof(processo_end)) == -1) {
-      printf("[PROCESSO %d] Erro ao se conectar com processo %d para invalidar bloco\n", id_processo, id_leitor);
-      close(sock_fd);
-      continue;
-    }
-
-    sprintf(buffer, "%s %d", INVALIDATE, id_bloco);
-    write(sock_fd, &buffer, strlen(buffer));
-    close(sock_fd);
-  }
-  bloco->num_leitores = 0;
+  invalidar_cache_bloco_leitores(id_bloco);
 }
 
 void finalizar_programa() {
@@ -549,21 +552,8 @@ int main(int argc, char** argv) {
         if (strstr(requisicao, FETCH_BLOCO) != NULL) {
           if (!validar_erro_mensagem_protocolo(FETCH_BLOCO, requisicao)) {
             memset(resposta, VALOR_VAZIO, MAX_BUFFER);
-            char* parametros = requisicao + strlen(FETCH_BLOCO) + 1;
-            int id_leitor = atoi(strtok(parametros, ESPACO));
-            int id_bloco = atoi(strtok(NULL, ESPACO));
-            adicionar_leitor_bloco(id_bloco, id_leitor);
-            fetch_bloco(parametros, resposta);
+            fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
             write(clientes[i].fd, &resposta, tam_blocos);
-          }
-          continue;
-        }
-
-        if (strstr(requisicao, INVALIDATE) != NULL) {
-          if (!validar_erro_mensagem_protocolo(INVALIDATE, requisicao)) {
-            char* parametros = requisicao + strlen(INVALIDATE) + 1;
-            int id_bloco = atoi(parametros);
-            invalidar_bloco_cache(id_bloco);
           }
           continue;
         }
@@ -582,7 +572,6 @@ int main(int argc, char** argv) {
         if (strstr(requisicao, STORE_BLOCO) != NULL) {
           if (!validar_erro_mensagem_protocolo(STORE_BLOCO, requisicao)) {
             store_bloco(requisicao + strlen(STORE_BLOCO));
-            // enviar invalidation notice para leitores do bloco
           }
           continue;
         }
@@ -595,6 +584,15 @@ int main(int argc, char** argv) {
             store_dados(requisicao + strlen(STORE), resposta);
           }
           write(clientes[i].fd, &resposta, strlen(resposta));
+          continue;
+        }
+
+        if (strstr(requisicao, INVALIDATE_CACHE) != NULL) {
+          if (!validar_erro_mensagem_protocolo(INVALIDATE_CACHE, requisicao)) {
+            char* parametros = requisicao + strlen(INVALIDATE_CACHE) + 1;
+            int id_bloco = atoi(parametros);
+            invalidar_bloco_cache(id_bloco);
+          }
           continue;
         }
       }
