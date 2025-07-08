@@ -26,6 +26,7 @@
 #define FETCH_BLOCO "FETCH_BLOCO"
 #define STORE "STORE"
 #define STORE_BLOCO "STORE_BLOCO"
+#define INVALIDATE "INVALIDATE"
 #define SUCESSO 0
 #define MSG_MALFORMADA 1
 #define FORA_LIMITE_MEMORIA 2
@@ -62,7 +63,7 @@ void obter_parametros_aplicacao(int argc, char** argv) {
   if (argc < 5) {
     printf(
         "Informe os parâmetros:\n-p (número de processos)\n-b (número de "
-        "blocos)\n-t (tamanho dos blocos)\n -c (tamanho do cache)\n ");
+        "blocos)\n-t (tamanho dos blocos)\n-c (tamanho do cache)\n ");
     exit(EXIT_FAILURE);
   }
   for (int i = 1; i < argc; i++) {
@@ -353,10 +354,14 @@ void fetch_dados(char* parametros, char* buffer) {
   for (int i = 0; i < n_bytes; i++) {
     int id_bloco = (posicao_inicial + i) / tam_blocos;
     int endereco_bloco = (posicao_inicial + i) % tam_blocos;
+    char* endereco_cache = obter_bloco_cache(id_bloco);
 
-    if (bloco_atual.id != id_bloco) {
+    if (endereco_cache != NULL) {
+      memcpy(bloco_atual.enderecos, endereco_cache, tam_blocos);
+    } else if (bloco_atual.id != id_bloco) {
       bloco_atual.id = id_bloco;
       obter_dados_bloco(id_bloco, bloco_atual.enderecos);
+      adicionar_bloco_cache(id_bloco, bloco_atual.enderecos);
     }
 
     dados[i] = bloco_atual.enderecos[endereco_bloco];
@@ -411,6 +416,7 @@ void store_bloco(char* parametros) {
   int id_bloco = atoi(strtok(parametros, ESPACO));
   char* conteudo = strtok(NULL, "");
   memcpy(blocos[id_bloco % num_blocos_processo].enderecos, conteudo, tam_blocos);
+  // @TODO: enviar notificação de cache invalidation
 }
 
 void finalizar_programa() {
@@ -422,6 +428,7 @@ int main(int argc, char** argv) {
   obter_parametros_aplicacao(argc, argv);
   criar_processos();
   criar_blocos_processo();
+  criar_cache();
   mapear_portas();
 
   int sock_fd, cliente_fd;
@@ -496,6 +503,7 @@ int main(int argc, char** argv) {
           if (!validar_erro_mensagem_protocolo(FETCH_BLOCO, requisicao)) {
             memset(resposta, VALOR_VAZIO, MAX_BUFFER);
             fetch_bloco(requisicao + strlen(FETCH_BLOCO), resposta);
+            // @TODO: adicionar leitor correto ao bloco, como?
             write(clientes[i].fd, &resposta, tam_blocos);
           }
           continue;
@@ -515,6 +523,7 @@ int main(int argc, char** argv) {
         if (strstr(requisicao, STORE_BLOCO) != NULL) {
           if (!validar_erro_mensagem_protocolo(STORE_BLOCO, requisicao)) {
             store_bloco(requisicao + strlen(STORE_BLOCO));
+            // enviar invalidation notice para leitores do bloco
           }
           continue;
         }
