@@ -15,7 +15,7 @@ make all
 Execute o programa da seguinte forma:
 
 ```bash
-./memcomdist -p <numero_processos> -b <numero_blocos> -t <tamanho_blocos> -c <tamanho_cache>
+./memocomdist -p <numero_processos> -b <numero_blocos> -t <tamanho_blocos> -c <tamanho_cache>
 ```
 
 - `<numero_processos>`: Número de processos do sistema que compartilham a memória.
@@ -26,7 +26,7 @@ Execute o programa da seguinte forma:
 ### Exemplo:
 
 ```bash
-./memcomdist -p 4 -b 12 -t 3
+./memocomdist -p 4 -b 12 -t 3
 ```
 
 ## Utilização

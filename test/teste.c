@@ -3,7 +3,7 @@
 #include "../api/api.h"
 
 // Rodar programa com os seguintes parâmetros para os testes:
-// -p=4 -b=8 -t=2 -c=4
+// ./memocomdist -p=4 -b=8 -t=2 -c=4
 // Total de 16 bytes, 4 bytes por processo
 
 #define TAM_BUFFER 4096
@@ -54,6 +54,16 @@ void leituras_sucessivas() {
   }
 }
 
+void falha_conexao() {
+  int status;
+  char buffer[TAM_BUFFER];
+
+  status = le(5, buffer, 11);
+  if (status == ERRO_CONEXAO) {
+    printf("Servidor indisponível...\n");
+  }
+}
+
 int main() {
   int caso_teste = 0;
 
@@ -62,8 +72,9 @@ int main() {
     printf("1 - Leitura e escrita com sucesso\n");
     printf("2 - Leitura e escrita fora do limite da memória\n");
     printf("3 - Leituras sucessivas (uso e invalidação de cache)\n");
+    printf("4 - Falha na conexão com o serviço\n");
     scanf("%d", &caso_teste);
-  } while (caso_teste < 1 || caso_teste > 3);
+  } while (caso_teste < 1 || caso_teste > 4);
 
   switch (caso_teste) {
     case 1:
@@ -75,6 +86,8 @@ int main() {
     case 3:
       leituras_sucessivas();
       break;
+    case 4:
+      falha_conexao();
     default:
       break;
   }

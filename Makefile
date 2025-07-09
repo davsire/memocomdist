@@ -1,4 +1,4 @@
-TARGET = memcomdist
+TARGET = memocomdist
 SRC = src/main.c
 CC = gcc
 
