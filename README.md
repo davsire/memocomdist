@@ -35,7 +35,11 @@ A utilização do protótipo de memória compartilhada distribuída pode seguir 
 
 - Conexão com um dos nós (processos) do grupo usando sua porta e comunicação com o sistema através do protocolo definido.
 - Uso da API presente no arquivo `api/api.h` em um código `.c` (necessário compilar o arquivo `api/api.c` junto).
-
+  - Isso é exemplificado com o arquivo de testes `test/teste.c`.
+  - Primeiro compilar `api.c` com `gcc -g -c api/api.c -o api/api`
+  - Em seguida compilar `teste.c` com `gcc -o test/teste test/teste.c api/api`
+  - Rodar o executável do gerenciador de memória (`memocomdist`) com os parâmetros indicados em `teste.c`
+  - Rodar o executável do teste (`test/teste`)
 ### Processos
 
 Se conectar a um processo é possível usando sua porta, as portas vão de `50000` até `50000 + (numero_processos - 1)`.
