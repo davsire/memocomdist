@@ -27,6 +27,7 @@
 #define STORE "STORE"
 #define STORE_BLOCO "STORE_BLOCO"
 #define INVALIDATE_CACHE "INVALIDATE_CACHE"
+#define LOG_CACHE "LOG_CACHE"
 #define SUCESSO 0
 #define MSG_MALFORMADA 1
 #define FORA_LIMITE_MEMORIA 2
@@ -470,15 +471,15 @@ void store_bloco(char* parametros) {
   invalidar_bloco_cache_leitores(id_bloco);
 }
 
-void finalizar_programa() {
-  fim_programa = 1;
-}
-
 void print_cache() {
   for (int i = 0; i < tam_cache; i++) {
-    printf("bloco: %d, conteudo: %s, timestamp: %ld\n", cache[i].id, cache[i].enderecos, cache[i].timestamp);
+    printf("Bloco: %d, Conteúdo: %s, Timestamp: %ld\n", cache[i].id, cache[i].enderecos, cache[i].timestamp);
   }
   printf("\n");
+}
+
+void finalizar_programa() {
+  fim_programa = 1;
 }
 
 int main(int argc, char** argv) {
@@ -604,7 +605,7 @@ int main(int argc, char** argv) {
           continue;
         }
 
-        if (strstr(requisicao, "LOG_CACHE") != NULL) {
+        if (strstr(requisicao, LOG_CACHE) != NULL) {
           print_cache();
           continue;
         }
