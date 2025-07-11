@@ -313,7 +313,7 @@ void invalidar_bloco_cache_leitores(int id_bloco) {
   bloco_alterado->num_leitores = 0;
 }
 
-void obter_dados_bloco(int id_bloco, char* destino) {
+void obter_dados_bloco(int id_bloco, char* destino, int cachear) {
   int processo_bloco = id_bloco / num_blocos_processo;
 
   if (processo_bloco == id_processo) {
@@ -352,7 +352,7 @@ void obter_dados_bloco(int id_bloco, char* destino) {
   read(sock_fd, &buffer, tam_blocos);
   close(sock_fd);
 
-  adicionar_bloco_cache(id_bloco, buffer);
+  if (cachear) adicionar_bloco_cache(id_bloco, buffer);
   memcpy(destino, buffer, tam_blocos);
 }
 
@@ -409,7 +409,7 @@ void fetch_dados(char* parametros, char* buffer) {
 
     if (bloco_atual.id != id_bloco) {
       bloco_atual.id = id_bloco;
-      obter_dados_bloco(id_bloco, bloco_atual.enderecos);
+      obter_dados_bloco(id_bloco, bloco_atual.enderecos, 1);
     }
 
     dados[i] = bloco_atual.enderecos[endereco_bloco];
@@ -453,7 +453,7 @@ void store_dados(char* parametros, char* buffer) {
       }
 
       bloco_atual.id = id_bloco;
-      obter_dados_bloco(id_bloco, bloco_atual.enderecos);
+      obter_dados_bloco(id_bloco, bloco_atual.enderecos, 0);
     }
 
     bloco_atual.enderecos[endereco_bloco] = conteudo[i];
