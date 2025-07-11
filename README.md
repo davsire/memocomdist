@@ -40,6 +40,7 @@ A utilização do protótipo de memória compartilhada distribuída pode seguir 
   - Em seguida compilar `teste.c` com `gcc -o test/teste test/teste.c api/api`
   - Rodar o executável do gerenciador de memória (`memocomdist`) com os parâmetros indicados em `teste.c`
   - Rodar o executável do teste (`test/teste`)
+
 ### Processos
 
 Se conectar a um processo é possível usando sua porta, as portas vão de `50000` até `50000 + (numero_processos - 1)`.
