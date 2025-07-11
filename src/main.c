@@ -474,6 +474,13 @@ void finalizar_programa() {
   fim_programa = 1;
 }
 
+void print_cache() {
+  for (int i = 0; i < tam_cache; i++) {
+    printf("bloco: %d, conteudo: %s, timestamp: %ld\n", cache[i].id, cache[i].enderecos, cache[i].timestamp);
+  }
+  printf("\n");
+}
+
 int main(int argc, char** argv) {
   signal(SIGINT, finalizar_programa);
   obter_parametros_aplicacao(argc, argv);
@@ -594,6 +601,11 @@ int main(int argc, char** argv) {
             int id_bloco = atoi(parametros);
             invalidar_bloco_cache(id_bloco);
           }
+          continue;
+        }
+
+        if (strstr(requisicao, "LOG_CACHE") != NULL) {
+          print_cache();
           continue;
         }
       }
